@@ -234,15 +234,11 @@ with tab1:
             imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
             ausentes_fora.append({"posição": pos, "importancia": imp})
 
-    # 3. # ================== Meteorologia e Condições Especiais (Casa e Fora) ==================
+    # # ================== Meteorologia e Condições Especiais (Ajustado: Dia/Noite único) ==================
 st.subheader("Meteorologia e Condições Especiais")
 
-# --- Jogo Dia/Noite ---
-col_dia_noite = st.columns(2)
-with col_dia_noite[0]:
-    periodo_casa = st.selectbox("⏰ Jogo da CASA - Período", ["Dia", "Noite"], key="periodo_casa")
-with col_dia_noite[1]:
-    periodo_fora = st.selectbox("⏰ Jogo da FORA - Período", ["Dia", "Noite"], key="periodo_fora")
+# --- Jogo Dia/Noite (único) ---
+periodo = st.selectbox("⏰ O jogo é de Dia ou Noite?", ["Dia", "Noite"], key="periodo_jogo")
 
 # --- Meteorologia ---
 col_meteo = st.columns(2)
@@ -250,6 +246,7 @@ with col_meteo[0]:
     meteo_casa = st.selectbox("Meteorologia CASA", meteos_lista, key="meteo_casa")
 with col_meteo[1]:
     meteo_fora = st.selectbox("Meteorologia FORA", meteos_lista, key="meteo_fora")
+
 
 # --- Árbitro (nota, tendência e média cartões) ---
 st.subheader("Árbitro")
@@ -501,6 +498,7 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
 
