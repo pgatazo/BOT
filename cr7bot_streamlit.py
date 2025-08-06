@@ -234,15 +234,51 @@ with tab1:
             imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
             ausentes_fora.append({"posição": pos, "importancia": imp})
 
-    # 3. Meteorologia e Condições Especiais
-    st.subheader("Meteorologia e Condições Especiais")
-    meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
+    # 3. # ================== Meteorologia e Condições Especiais (Casa e Fora) ==================
+st.subheader("Meteorologia e Condições Especiais")
+
+# --- Jogo Dia/Noite ---
+col_dia_noite = st.columns(2)
+with col_dia_noite[0]:
+    periodo_casa = st.selectbox("⏰ Jogo da CASA - Período", ["Dia", "Noite"], key="periodo_casa")
+with col_dia_noite[1]:
+    periodo_fora = st.selectbox("⏰ Jogo da FORA - Período", ["Dia", "Noite"], key="periodo_fora")
+
+# --- Meteorologia ---
+col_meteo = st.columns(2)
+with col_meteo[0]:
+    meteo_casa = st.selectbox("Meteorologia CASA", meteos_lista, key="meteo_casa")
+with col_meteo[1]:
+    meteo_fora = st.selectbox("Meteorologia FORA", meteos_lista, key="meteo_fora")
+
+# --- Árbitro (nota, tendência e média cartões) ---
+st.subheader("Árbitro")
+col_arb = st.columns(3)
+with col_arb[0]:
     arbitro = st.slider("Nota do Árbitro (0-10)", 0.0, 10.0, 5.0, 0.1, key="arbitro_pre")
-    motivacao = st.selectbox("Motivação da equipa", ["Baixa", "Normal", "Alta", "Máxima"], key="motivacao_pre")
-    importancia_jogo = st.selectbox("Importância do jogo", ["Pouca", "Normal", "Importante", "Decisivo"], key="importancia_jogo_pre")
-    pressao_adeptos = st.selectbox("Pressão dos adeptos", ["Baixa", "Normal", "Alta"], key="pressao_adeptos_pre")
-    desgaste_fisico = st.selectbox("Desgaste físico", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_pre")
-    viagem = st.selectbox("Viagem/Calendário", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_pre")
+with col_arb[1]:
+    tendencia_cartoes = st.selectbox("Tendência de Cartões", ["Poucos", "Normal", "Muitos"], key="tendencia_cartoes")
+with col_arb[2]:
+    media_cartoes = st.number_input("Média de Cartões por Jogo", min_value=0.0, max_value=10.0, value=4.5, step=0.1, key="media_cartoes")
+
+# --- Motivações, Importância, Pressão, Desgaste, Viagem (Casa e Fora) ---
+st.subheader("Motivação e Condições Especiais (CASA e FORA)")
+col_casa, col_fora = st.columns(2)
+
+with col_casa:
+    motivacao_casa = st.selectbox("Motivação da equipa CASA", ["Baixa", "Normal", "Alta", "Máxima"], key="motivacao_casa")
+    importancia_jogo_casa = st.selectbox("Importância do jogo CASA", ["Pouca", "Normal", "Importante", "Decisivo"], key="importancia_jogo_casa")
+    pressao_adeptos_casa = st.selectbox("Pressão dos adeptos CASA", ["Baixa", "Normal", "Alta"], key="pressao_adeptos_casa")
+    desgaste_fisico_casa = st.selectbox("Desgaste físico CASA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_casa")
+    viagem_casa = st.selectbox("Viagem/Calendário CASA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_casa")
+
+with col_fora:
+    motivacao_fora = st.selectbox("Motivação da equipa FORA", ["Baixa", "Normal", "Alta", "Máxima"], key="motivacao_fora")
+    importancia_jogo_fora = st.selectbox("Importância do jogo FORA", ["Pouca", "Normal", "Importante", "Decisivo"], key="importancia_jogo_fora")
+    pressao_adeptos_fora = st.selectbox("Pressão dos adeptos FORA", ["Baixa", "Normal", "Alta"], key="pressao_adeptos_fora")
+    desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
+    viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
+
 
     # 4. Odds mercado
     st.subheader("Odds da Casa de Apostas (1X2)")
@@ -465,5 +501,6 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
