@@ -7,7 +7,7 @@ from io import BytesIO
 
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
-PESOS_FILE = "pesos_ajustes.json"
+PESOS_FILE = "pesos_personalizados.json"
 
 # ====================== LOGIN ======================
 def hash_pwd(pwd):
@@ -43,10 +43,10 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
     if not login_screen():
         st.stop()
 
-st.set_page_config(page_title="PauloDamas-GPT", layout="centered")
+st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA de Treinador")
 
-# ========== Funções Utilitárias ==========
+# ======== Funções Utilitárias ==========
 def kelly_criterion(prob, odd, banca, fracao=1):
     b = odd - 1
     q = 1 - prob
@@ -55,45 +55,46 @@ def kelly_criterion(prob, odd, banca, fracao=1):
 
 def calc_ev(p, o): return round(o * p - 1, 2)
 
-def to_excel(df, distrib, resumo):
+def to_excel(df, distrib, resumo, pesos_df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Análise Principal')
         distrib.to_excel(writer, index=False, sheet_name='Distribuição Ajustes')
         resumo.to_excel(writer, index=False, sheet_name='Resumo Inputs')
+        pesos_df.to_excel(writer, index=False, sheet_name='Pesos em Uso')
     return output.getvalue()
 
-# ========== AJUSTE DE PESOS ==========
-PESOS_DEFAULT = {
-    "motivacao": 0.04,
-    "arbitro": 0.04,
-    "pressao": 0.02,
-    "importancia": 0.03,
-    "desgaste": 0.02,
-    "viagem": 0.01
-}
-def load_pesos():
-    if os.path.exists(PESOS_FILE):
-        with open(PESOS_FILE, "r") as f:
+def save_custom(data):
+    with open(CUSTOM_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def load_custom():
+    if os.path.exists(CUSTOM_FILE):
+        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    return PESOS_DEFAULT.copy()
+    else:
+        return {}
 
 def save_pesos(pesos):
-    with open(PESOS_FILE, "w") as f:
-        json.dump(pesos, f, indent=2)
+    with open(PESOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(pesos, f, ensure_ascii=False, indent=2)
 
-if "pesos" not in st.session_state:
-    st.session_state["pesos"] = load_pesos()
-
-def ajuste_control(label, peso_key, minimo=0.0, maximo=0.2, step=0.01):
-    col1, col2, col3 = st.columns([3,1,1])
-    col1.write(f"{label}: {st.session_state['pesos'][peso_key]:.3f}")
-    if col2.button("➖", key=f"minus_{peso_key}"):
-        st.session_state['pesos'][peso_key] = max(minimo, round(st.session_state['pesos'][peso_key]-step,3))
-        save_pesos(st.session_state['pesos'])
-    if col3.button("➕", key=f"plus_{peso_key}"):
-        st.session_state['pesos'][peso_key] = min(maximo, round(st.session_state['pesos'][peso_key]+step,3))
-        save_pesos(st.session_state['pesos'])
+def load_pesos():
+    if os.path.exists(PESOS_FILE):
+        with open(PESOS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        # Defaults
+        return {
+            "Motivação_C": 0.01, "Motivação_F": 0.01,
+            "Árbitro_C": 0.00, "Árbitro_F": 0.00,
+            "Pressão_C": 0.02, "Pressão_F": 0.02,
+            "Importância_C": 0.01, "Importância_F": 0.01,
+            "Desgaste_C": 0.01, "Desgaste_F": 0.01,
+            "Viagem_C": 0.01, "Viagem_F": 0.01,
+            "Formação_C": 0.01, "Formação_F": 0.01,
+            "Titulares_C": 0.01, "Titulares_F": 0.01
+        }
 
 # ========== Listas ==========
 formacoes_lista = [
@@ -112,18 +113,28 @@ posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
 meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
-# ========== Funções Auxiliares de Liga/Equipa ==========
-def load_custom():
-    if os.path.exists(CUSTOM_FILE):
-        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    else:
-        return {}
+# =================== PAINEL LATERAL DE PESOS ===================
+if "pesos" not in st.session_state:
+    st.session_state["pesos"] = load_pesos()
 
-def save_custom(data):
-    with open(CUSTOM_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+st.sidebar.title("📊 Painel de Pesos - Casa & Fora (Ajustáveis)")
+def peso_input(nome, default, key):
+    val = st.sidebar.number_input(f"{nome}", min_value=-0.1, max_value=0.1, value=default, step=0.001, key=key)
+    st.session_state["pesos"][nome] = val
+    return val
 
+pesos = st.session_state["pesos"]
+for fator in ["Motivação", "Árbitro", "Pressão", "Importância", "Desgaste", "Viagem", "Formação", "Titulares"]:
+    pesos[f"{fator}_C"] = peso_input(f"Peso {fator} CASA", pesos.get(f"{fator}_C", 0.01), f"peso_{fator.lower()}_c")
+    pesos[f"{fator}_F"] = peso_input(f"Peso {fator} FORA", pesos.get(f"{fator}_F", 0.01), f"peso_{fator.lower()}_f")
+if st.sidebar.button("💾 Gravar Pesos Personalizados"):
+    save_pesos(pesos)
+    st.sidebar.success("Pesos guardados!")
+st.sidebar.markdown("---")
+st.sidebar.markdown("⚠️ *Ajusta os pesos se a análise não estiver justa!*")
+
+# ========================================
+custom_data = load_custom()
 ligas_fixas = {
     "Liga Betclic": [
         "Benfica", "Porto", "Sporting", "Braga", "Guimarães", "Casa Pia", "Boavista", "Estoril",
@@ -141,29 +152,15 @@ ligas_fixas = {
         "Las Palmas", "Mallorca", "Alaves", "Rayo Vallecano", "Almeria", "Girona", "Cadiz"
     ]
 }
-custom_data = load_custom()
 ligas_custom = custom_data.get("ligas", {})
 todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
 
 # ========== TABS ==========
 tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
 
-# ========== PAINEL RESUMO (sidebar) ==========
-with st.sidebar:
-    st.header("🔎 Painel Resumo & Ajuste Pesos")
-    ajuste_control("Peso Motivação", "motivacao")
-    ajuste_control("Peso Árbitro", "arbitro")
-    ajuste_control("Peso Pressão Adeptos", "pressao")
-    ajuste_control("Peso Importância", "importancia")
-    ajuste_control("Peso Desgaste", "desgaste")
-    ajuste_control("Peso Viagem", "viagem")
-    st.markdown("---")
-    st.write("Pesos gravados em `pesos_ajustes.json`.")
-
 # ========== TAB PRÉ-JOGO ==========
 with tab1:
     st.header("Análise Pré-Jogo (com fatores avançados)")
-
     # --- LIGA E EQUIPAS ---
     st.subheader("Seleção de Liga e Equipas")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
@@ -233,6 +230,19 @@ with tab1:
                     st.success(f"Equipa '{nova_fora}' adicionada às opções!")
             equipa_fora = nova_fora
 
+    # Odds logo após equipas!
+    st.subheader("Odds da Casa de Apostas (1X2)")
+    col_odds1, col_odds2, col_odds3 = st.columns(3)
+    with col_odds1:
+        odd_casa = st.number_input("Odd Vitória CASA", min_value=1.0, value=1.90)
+    with col_odds2:
+        odd_empate = st.number_input("Odd EMPATE", min_value=1.0, value=3.10)
+    with col_odds3:
+        odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
+    soma_odds = odd_casa + odd_empate + odd_fora
+    st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
+    banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
+
     # --- Formações e Abordagem ---
     st.subheader("Formações e Estratégias")
     colf1, colf2 = st.columns(2)
@@ -243,35 +253,17 @@ with tab1:
         form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
         tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
 
-    # --- Titulares e Ausentes ---
+    # Titulares e ausentes
     st.subheader("Titulares disponíveis")
     titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
-    ausentes_casa = []
-    if titulares_casa < 11:
-        n_ausentes_casa = 11 - titulares_casa
-        st.warning(f"⚠️ Atenção: {n_ausentes_casa} titular(es) ausente(s) na CASA!")
-        for i in range(n_ausentes_casa):
-            st.markdown(f"**Ausente #{i+1} (CASA):**")
-            pos = st.selectbox(f"Posição", posicoes_lista, key=f"pos_casa_{i}")
-            imp = st.selectbox("Importância", importancias_lista, key=f"imp_casa_{i}")
-            ausentes_casa.append({"posição": pos, "importancia": imp})
     titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
-    ausentes_fora = []
-    if titulares_fora < 11:
-        n_ausentes_fora = 11 - titulares_fora
-        st.warning(f"⚠️ Atenção: {n_ausentes_fora} titular(es) ausente(s) na FORA!")
-        for i in range(n_ausentes_fora):
-            st.markdown(f"**Ausente #{i+1} (FORA):**")
-            pos = st.selectbox(f"Posição", posicoes_lista, key=f"pos_fora_{i}")
-            imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
-            ausentes_fora.append({"posição": pos, "importancia": imp})
 
-    # --- Meteorologia e Condições Especiais ---
+    # Meteorologia
     st.subheader("Meteorologia e Condições Especiais")
     periodo_jogo = st.selectbox("Quando se realiza o jogo?", ["Dia", "Noite"], key="periodo_jogo")
     meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
 
-    # --- Árbitro e Tendência de Cartões ---
+    # Árbitro
     st.subheader("Árbitro e Tendência de Cartões")
     col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
     with col_arbitro1:
@@ -281,7 +273,7 @@ with tab1:
     with col_arbitro3:
         media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
 
-    # --- Motivações, Pressão, Desgaste, Viagem (Casa/Fora) ---
+    # Motivação, pressão, etc.
     st.subheader("Motivação e Condições Especiais (CASA e FORA)")
     col_casa, col_fora = st.columns(2)
     with col_casa:
@@ -297,180 +289,163 @@ with tab1:
         desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
         viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
 
-    # [CONTINUA COM OS BLOCOS DE ODDS, MÉDIAS, ETC...]
+    # MÉDIAS E H2H
+    with st.form("totais_golos_form"):
+        st.subheader("Equipa da CASA")
+        total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
+        total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
+        jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
+        media_marcados_casa = total_golos_casa / jogos_casa
+        media_sofridos_casa = total_sofridos_casa / jogos_casa
+        st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
 
-# <--- ACABA AQUI as colunas!!!
+        st.subheader("Equipa de FORA")
+        total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
+        total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
+        jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
+        media_marcados_fora = total_golos_fora / jogos_fora
+        media_sofridos_fora = total_sofridos_fora / jogos_fora
+        st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
 
-# 4. Odds mercado (FORA DE QUALQUER with col_X:)
-st.subheader("Odds da Casa de Apostas (1X2)")
-col_odds1, col_odds2, col_odds3 = st.columns(3)
-with col_odds1:
-    odd_casa = st.number_input("Odd Vitória CASA", min_value=1.0, value=1.90)
-with col_odds2:
-    odd_empate = st.number_input("Odd EMPATE", min_value=1.0, value=3.10)
-with col_odds3:
-    odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
-soma_odds = odd_casa + odd_empate + odd_fora
-st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
-banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
+        st.subheader("Confrontos Diretos (H2H)")
+        total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
+        total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
+        jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
+        media_h2h_casa = total_golos_h2h_casa / jogos_h2h
+        media_h2h_fora = total_golos_h2h_fora / jogos_h2h
+        st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
+        confirm1 = st.form_submit_button("✅ Confirmar Totais")
+    if confirm1:
+        st.session_state['medias'] = {
+            'marc_casa': media_marcados_casa,
+            'sofr_casa': media_sofridos_casa,
+            'marc_fora': media_marcados_fora,
+            'sofr_fora': media_sofridos_fora,
+            'marc_h2h_casa': media_h2h_casa,
+            'marc_h2h_fora': media_h2h_fora,
+        }
+        st.success("Totais confirmados!")
 
-# ---- Totais e médias ----
-with st.form("totais_golos_form"):
-    st.subheader("Equipa da CASA")
-    total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
-    total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
-    jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
-    media_marcados_casa = total_golos_casa / jogos_casa
-    media_sofridos_casa = total_sofridos_casa / jogos_casa
-    st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
+    # ================== BOTÃO PRINCIPAL E CÁLCULO ====================
+    if st.button("Gerar Análise e Odds Justa"):
+        # Cálculos das diferenças de fatores (em vez de só aplicar igual)
+        def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
+            idx_c = lista.index(v_casa)
+            idx_f = lista.index(v_fora)
+            diff = idx_c - idx_f
+            return 1 + diff * peso_c, 1 - diff * peso_f
 
-    st.subheader("Equipa de FORA")
-    total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
-    total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
-    jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
-    media_marcados_fora = total_golos_fora / jogos_fora
-    media_sofridos_fora = total_sofridos_fora / jogos_fora
-    st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
+        # Ajuste formação
+        form_aj_casa, form_aj_fora = fator_delta(form_casa, form_fora, formacoes_lista, pesos["Formação_C"], pesos["Formação_F"])
+        # Ajuste abordagem (mais atacante/defensivo)
+        tipo_aj_casa, tipo_aj_fora = fator_delta(tipo_form_casa, tipo_form_fora, tipos_formacao, pesos["Formação_C"], pesos["Formação_F"])
+        # Ajuste titulares
+        tit_aj_casa = 1 + (titulares_casa - 11) * pesos["Titulares_C"]
+        tit_aj_fora = 1 + (titulares_fora - 11) * pesos["Titulares_F"]
 
-    st.subheader("Confrontos Diretos (H2H)")
-    total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
-    total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
-    jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
-    media_h2h_casa = total_golos_h2h_casa / jogos_h2h
-    media_h2h_fora = total_golos_h2h_fora / jogos_h2h
-    st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
+        # Ajuste motivação
+        motiv_aj_casa = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa)-1) * pesos["Motivação_C"]
+        motiv_aj_fora = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora)-1) * pesos["Motivação_F"]
+        # Árbitro
+        arb_aj_casa = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_C"]
+        arb_aj_fora = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_F"]
+        # Pressão
+        press_aj_casa = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["Pressão_C"]
+        press_aj_fora = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["Pressão_F"]
+        # Importância
+        imp_aj_casa = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["Importância_C"]
+        imp_aj_fora = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["Importância_F"]
+        # Desgaste
+        des_aj_casa = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["Desgaste_C"]
+        des_aj_fora = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["Desgaste_F"]
+        # Viagem
+        viag_aj_casa = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
+        viag_aj_fora = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
 
-    confirm1 = st.form_submit_button("✅ Confirmar Totais")
-if confirm1:
-    st.session_state['medias'] = {
-        'marc_casa': media_marcados_casa,
-        'sofr_casa': media_sofridos_casa,
-        'marc_fora': media_marcados_fora,
-        'sofr_fora': media_sofridos_fora,
-        'marc_h2h_casa': media_h2h_casa,
-        'marc_h2h_fora': media_h2h_fora,
-    }
-    st.success("Totais confirmados!")
+        # AJUSTE TOTAL (Produto de todos os fatores)
+        ajuste_total_casa = form_aj_casa * tipo_aj_casa * tit_aj_casa * motiv_aj_casa * arb_aj_casa * press_aj_casa * imp_aj_casa * des_aj_casa * viag_aj_casa
+        ajuste_total_fora = form_aj_fora * tipo_aj_fora * tit_aj_fora * motiv_aj_fora * arb_aj_fora * press_aj_fora * imp_aj_fora * des_aj_fora * viag_aj_fora
 
-# ---- Painel resumo intermédio (em baixo dos inputs principais) ----
-with st.expander("📊 Resumo dos Ajustes & Pesos (em tempo real)", expanded=True):
-    pesos = st.session_state['pesos']
-    st.write("**Pesos em uso:**")
-    for k, v in pesos.items():
-        st.write(f"- {k.capitalize()}: {v:.3f}")
+        # Probabilidades base (só médias)
+        prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
+        prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
+        prob_empate = 1 - (prob_casa + prob_fora)
 
-    st.write("**Ajustes calculados para CASA/FORA:**")
-    try:
-        ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * pesos["motivacao"]
-        ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
-        ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["pressao"]
-        ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["importancia"]
-        ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["desgaste"]
-        ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["viagem"]
-        ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
+        # Aplicar ajustes
+        prob_casa_aj = prob_casa * ajuste_total_casa
+        prob_fora_aj = prob_fora * ajuste_total_fora
+        prob_empate_aj = max(1 - (prob_casa_aj + prob_fora_aj), 0.01)
+        total_prob_aj = prob_casa_aj + prob_empate_aj + prob_fora_aj
+        prob_casa_aj, prob_empate_aj, prob_fora_aj = [p/total_prob_aj for p in [prob_casa_aj, prob_empate_aj, prob_fora_aj]]
 
-        ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * pesos["motivacao"]
-        ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
-        ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["pressao"]
-        ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["importancia"]
-        ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["desgaste"]
-        ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["viagem"]
-        ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
+        # Odds justas e EV
+        odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
+        odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
+        odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
+        ev_casa = calc_ev(prob_casa_aj, odd_casa)
+        ev_empate = calc_ev(prob_empate_aj, odd_empate)
+        ev_fora = calc_ev(prob_fora_aj, odd_fora)
+        stake_casa = kelly_criterion(prob_casa_aj, odd_casa, banca)
+        stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
+        stake_fora = kelly_criterion(prob_fora_aj, odd_fora, banca)
 
-        st.write(f"**CASA**: Motiv:{ajuste_motiv_casa:.3f} | Árbitro:{ajuste_arbitro_casa:.3f} | Pressão:{ajuste_pressao_casa:.3f} | Import:{ajuste_import_casa:.3f} | Desgaste:{ajuste_fisico_casa:.3f} | Viagem:{ajuste_viagem_casa:.3f} | TOTAL: {ajuste_total_casa:.3f}")
-        st.write(f"**FORA**: Motiv:{ajuste_motiv_fora:.3f} | Árbitro:{ajuste_arbitro_fora:.3f} | Pressão:{ajuste_pressao_fora:.3f} | Import:{ajuste_import_fora:.3f} | Desgaste:{ajuste_fisico_fora:.3f} | Viagem:{ajuste_viagem_fora:.3f} | TOTAL: {ajuste_total_fora:.3f}")
-    except Exception as e:
-        st.info("Preenche todos os campos para ver o resumo dos ajustes.")
+        # Resultados
+        df_res = pd.DataFrame({
+            "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
+            "Odd": [odd_casa, odd_empate, odd_fora],
+            "Odd Justa": [round(odd_justa_casa,2), round(odd_justa_empate,2), round(odd_justa_fora,2)],
+            "Prob. (%)": [round(prob_casa_aj*100,1), round(prob_empate_aj*100,1), round(prob_fora_aj*100,1)],
+            "EV": [ev_casa, ev_empate, ev_fora],
+            "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
+            "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
+        })
 
-# 5. Cálculos Odds Justa e EV
-if st.button("Gerar Análise e Odds Justa"):
-    # Usar pesos atuais!
-    pesos = st.session_state['pesos']
-    ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * pesos["motivacao"]
-    ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
-    ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["pressao"]
-    ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["importancia"]
-    ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["desgaste"]
-    ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["viagem"]
-    ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
+        # Tabela dos ajustes
+        dist_ajustes = [
+            ["Formação", form_aj_casa, form_aj_fora],
+            ["Abordagem", tipo_aj_casa, tipo_aj_fora],
+            ["Titulares", tit_aj_casa, tit_aj_fora],
+            ["Motivação", motiv_aj_casa, motiv_aj_fora],
+            ["Árbitro", arb_aj_casa, arb_aj_fora],
+            ["Pressão", press_aj_casa, press_aj_fora],
+            ["Importância", imp_aj_casa, imp_aj_fora],
+            ["Desgaste", des_aj_casa, des_aj_fora],
+            ["Viagem", viag_aj_casa, viag_aj_fora],
+            ["AJUSTE TOTAL", ajuste_total_casa, ajuste_total_fora],
+            ["Probabilidade ajustada", prob_casa_aj, prob_fora_aj]
+        ]
+        distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
-    ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * pesos["motivacao"]
-    ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
-    ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["pressao"]
-    ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["importancia"]
-    ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["desgaste"]
-    ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["viagem"]
-    ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
+        # Resumo Inputs
+        resumo_dict = {
+            "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
+            "Formação CASA": [form_casa], "Formação FORA": [form_fora],
+            "Abordagem CASA": [tipo_form_casa], "Abordagem FORA": [tipo_form_fora],
+            "Titulares CASA": [titulares_casa], "Titulares FORA": [titulares_fora],
+            "Período do Jogo": [periodo_jogo], "Meteo": [meteo],
+            "Nota Árbitro": [arbitro], "Tendência Cartões": [tendencia_cartoes], "Média Cartões": [media_cartoes],
+            "Motivação CASA": [motivacao_casa], "Importância Jogo CASA": [importancia_jogo_casa], "Pressão Adeptos CASA": [pressao_adeptos_casa],
+            "Desgaste CASA": [desgaste_fisico_casa], "Viagem CASA": [viagem_casa],
+            "Motivação FORA": [motivacao_fora], "Importância Jogo FORA": [importancia_jogo_fora], "Pressão Adeptos FORA": [pressao_adeptos_fora],
+            "Desgaste FORA": [desgaste_fisico_fora], "Viagem FORA": [viagem_fora],
+            "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
+            "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
+            "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
+            "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora]
+        }
+        resumo_df = pd.DataFrame(resumo_dict)
+        pesos_df = pd.DataFrame([pesos])
 
-    prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
-    prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
-    prob_empate = 1 - (prob_casa + prob_fora)
-
-    prob_casa_aj = prob_casa * ajuste_total_casa
-    prob_fora_aj = prob_fora * ajuste_total_fora
-    prob_empate_aj = 1 - (prob_casa_aj + prob_fora_aj)
-
-    odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
-    odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
-    odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
-
-    ev_casa = calc_ev(prob_casa_aj, odd_casa)
-    ev_empate = calc_ev(prob_empate_aj, odd_empate)
-    ev_fora = calc_ev(prob_fora_aj, odd_fora)
-
-    stake_casa = kelly_criterion(prob_casa_aj, odd_casa, banca)
-    stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
-    stake_fora = kelly_criterion(prob_fora_aj, odd_fora, banca)
-
-    df_res = pd.DataFrame({
-        "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
-        "Odd": [odd_casa, odd_empate, odd_fora],
-        "Odd Justa": [round(odd_justa_casa,2), round(odd_justa_empate,2), round(odd_justa_fora,2)],
-        "Prob. (%)": [round(prob_casa_aj*100,1), round(prob_empate_aj*100,1), round(prob_fora_aj*100,1)],
-        "EV": [ev_casa, ev_empate, ev_fora],
-        "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
-        "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
-    })
-
-    # ----------------- Aba Distribuição de Ajustes -----------------
-    dist_ajustes = [
-        ["Ajuste Motivação", ajuste_motiv_casa, ajuste_motiv_fora],
-        ["Ajuste Árbitro", ajuste_arbitro_casa, ajuste_arbitro_fora],
-        ["Ajuste Pressão Adeptos", ajuste_pressao_casa, ajuste_pressao_fora],
-        ["Ajuste Importância", ajuste_import_casa, ajuste_import_fora],
-        ["Ajuste Desgaste Físico", ajuste_fisico_casa, ajuste_fisico_fora],
-        ["Ajuste Viagem/Calendário", ajuste_viagem_casa, ajuste_viagem_fora],
-        ["Ajuste Total", ajuste_total_casa, ajuste_total_fora],
-        ["Probabilidade base", prob_casa, prob_fora],
-        ["Probabilidade ajustada", prob_casa_aj, prob_fora_aj],
-    ]
-    distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
-
-    # ----------------- Aba Resumo Inputs -----------------
-    resumo_dict = {
-        "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
-        "Formação CASA": [form_casa], "Formação FORA": [form_fora],
-        "Abordagem CASA": [tipo_form_casa], "Abordagem FORA": [tipo_form_fora],
-        "Titulares CASA": [titulares_casa], "Titulares FORA": [titulares_fora],
-        "Período do Jogo": [periodo_jogo], "Meteo": [meteo],
-        "Nota Árbitro": [arbitro], "Tendência Cartões": [tendencia_cartoes], "Média Cartões": [media_cartoes],
-        "Motivação CASA": [motivacao_casa], "Importância Jogo CASA": [importancia_jogo_casa], "Pressão Adeptos CASA": [pressao_adeptos_casa],
-        "Desgaste CASA": [desgaste_fisico_casa], "Viagem CASA": [viagem_casa],
-        "Motivação FORA": [motivacao_fora], "Importância Jogo FORA": [importancia_jogo_fora], "Pressão Adeptos FORA": [pressao_adeptos_fora],
-        "Desgaste FORA": [desgaste_fisico_fora], "Viagem FORA": [viagem_fora],
-        "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
-        "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
-        "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
-        "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora]
-    }
-    resumo_df = pd.DataFrame(resumo_dict)
-
-    st.subheader("Resultados da Análise")
-    st.dataframe(df_res)
-    relatorio = to_excel(df_res, distrib_df, resumo_df)
-    st.download_button("⬇️ Download Relatório Completo (Excel)", data=relatorio, file_name="analise_prejogo_completa.xlsx")
-    st.success("Análise pronta! Consulta apostas recomendadas na tabela acima e faz download do relatório completo.")
-
+        # Apresentação
+        st.subheader("Resultados da Análise")
+        st.dataframe(df_res)
+        st.subheader("Distribuição dos Ajustes & Pesos (Casa / Fora)")
+        st.dataframe(distrib_df)
+        st.subheader("📊 Pesos em uso")
+        st.dataframe(pesos_df.T, use_container_width=True)
+        relatorio = to_excel(df_res, distrib_df, resumo_df, pesos_df)
+        st.download_button("⬇️ Download Relatório Completo (Excel)", data=relatorio, file_name="analise_prejogo_completa.xlsx")
+        st.success("Análise pronta! Consulta apostas recomendadas, detalhes dos ajustes e exporta tudo para Excel.")
 # ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
 with tab2:
     st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + IA)")
@@ -605,4 +580,5 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
