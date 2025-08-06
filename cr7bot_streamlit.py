@@ -8,7 +8,6 @@ from io import BytesIO
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
 
-# ====================== LOGIN ======================
 def hash_pwd(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
 
@@ -45,7 +44,6 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
 st.set_page_config(page_title="PauloDamas-GPT", layout="centered")
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA de Treinador")
 
-# ========== Funções Utilitárias ==========
 def kelly_criterion(prob, odd, banca, fracao=1):
     b = odd - 1
     q = 1 - prob
@@ -59,6 +57,21 @@ def to_excel(df):
     df.to_excel(writer, index=False, sheet_name='Resultados')
     writer.close()
     return output.getvalue()
+
+# ====== FUNÇÕES PARA O LIVE ==========
+def interpretar_tatica(eventos, base, resultado):
+    # Função simplificada — PERSONALIZA depois
+    if not eventos:
+        return "Sem eventos registados. O jogo segue taticamente igual ao início da 2ª parte."
+    info = [f"{ev['tipo']} ({ev['equipa']})" for ev in eventos]
+    return f"Eventos registados: {', '.join(info)}. Mantém atenção a mudanças táticas ou substituições importantes."
+
+def calc_xg_live(base, eventos):
+    # Simulação simples para evitar erro. PERSONALIZA depois.
+    ajuste = 1.0 + 0.02 * len(eventos)
+    xg_base = base.get("xg_casa", 0) + base.get("xg_fora", 0)
+    xg_ponderado = xg_base * ajuste
+    return xg_ponderado, ajuste, xg_ponderado
 
 # ========== Listas ==========
 formacoes_lista = [
@@ -77,7 +90,6 @@ posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
 meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
-# ========== Funções Auxiliares de Liga/Equipa ==========
 def load_custom():
     if os.path.exists(CUSTOM_FILE):
         with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
@@ -110,14 +122,11 @@ custom_data = load_custom()
 ligas_custom = custom_data.get("ligas", {})
 todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
 
-# ========== TABS ==========
 tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
 
-# ========== TAB PRÉ-JOGO ==========
 with tab1:
     st.header("Análise Pré-Jogo (com fatores avançados)")
 
-    # --- LIGA E EQUIPAS ---
     st.subheader("Seleção de Liga e Equipas")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
     if liga_escolhida == "Outra (nova liga personalizada)":
@@ -186,7 +195,6 @@ with tab1:
                     st.success(f"Equipa '{nova_fora}' adicionada às opções!")
             equipa_fora = nova_fora
 
-    # --- Formações e Abordagem ---
     st.subheader("Formações e Estratégias")
     colf1, colf2 = st.columns(2)
     with colf1:
@@ -196,7 +204,6 @@ with tab1:
         form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
         tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
 
-    # --- Titulares e Ausentes ---
     st.subheader("Titulares disponíveis")
     titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
     ausentes_casa = []
@@ -219,12 +226,10 @@ with tab1:
             imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
             ausentes_fora.append({"posição": pos, "importancia": imp})
 
-    # --- Meteorologia e Condições Especiais ---
     st.subheader("Meteorologia e Condições Especiais")
     periodo_jogo = st.selectbox("Quando se realiza o jogo?", ["Dia", "Noite"], key="periodo_jogo")
     meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
 
-    # --- Árbitro e Tendência de Cartões ---
     st.subheader("Árbitro e Tendência de Cartões")
     col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
     with col_arbitro1:
@@ -234,7 +239,6 @@ with tab1:
     with col_arbitro3:
         media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
 
-    # --- Motivações, Pressão, Desgaste, Viagem (Casa/Fora) ---
     st.subheader("Motivação e Condições Especiais (CASA e FORA)")
     col_casa, col_fora = st.columns(2)
     with col_casa:
@@ -250,11 +254,6 @@ with tab1:
         desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
         viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
 
-    # [CONTINUA COM OS BLOCOS DE ODDS, MÉDIAS, ETC...]
-
-# <--- ACABA AQUI as colunas!!!
-
-# 4. Odds mercado (FORA DE QUALQUER with col_X:)
 st.subheader("Odds da Casa de Apostas (1X2)")
 col_odds1, col_odds2, col_odds3 = st.columns(3)
 with col_odds1:
@@ -267,7 +266,6 @@ soma_odds = odd_casa + odd_empate + odd_fora
 st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
 banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
-# ---- Totais e médias ----
 with st.form("totais_golos_form"):
     st.subheader("Equipa da CASA")
     total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
@@ -305,10 +303,7 @@ if confirm1:
     }
     st.success("Totais confirmados!")
 
-
-    # 5. Cálculos Odds Justa e EV
 if st.button("Gerar Análise e Odds Justa"):
-    # --- Ajustes individuais CASA ---
     ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * 0.04
     ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * 0.04
     ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * 0.02
@@ -317,7 +312,6 @@ if st.button("Gerar Análise e Odds Justa"):
     ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * 0.01
     ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
 
-    # --- Ajustes individuais FORA ---
     ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * 0.04
     ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * 0.04
     ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * 0.02
@@ -326,17 +320,14 @@ if st.button("Gerar Análise e Odds Justa"):
     ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * 0.01
     ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
 
-    # --- Cálculo base das probabilidades ---
     prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
     prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
     prob_empate = 1 - (prob_casa + prob_fora)
 
-    # --- Aplicar ajustes individuais a cada equipa ---
     prob_casa *= ajuste_total_casa
     prob_fora *= ajuste_total_fora
     prob_empate = 1 - (prob_casa + prob_fora)
 
-    # --- Restantes cálculos ---
     odd_justa_casa = 1 / (prob_casa + 1e-7)
     odd_justa_empate = 1 / (prob_empate + 1e-7)
     odd_justa_fora = 1 / (prob_fora + 1e-7)
@@ -364,12 +355,9 @@ if st.button("Gerar Análise e Odds Justa"):
     st.download_button("⬇️ Download Excel", data=to_excel(df_res), file_name="analise_prejogo_paulo_gpt.xlsx")
     st.success("Análise pronta! Consulta apostas recomendadas na tabela acima.")
 
-
-# ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
 with tab2:
     st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + IA)")
 
-    # --- Formação inicial live + abordagem ---
     st.subheader("Formações e Estratégias (início da 2ª parte)")
     col_livef1, col_livef2 = st.columns(2)
     with col_livef1:
@@ -379,7 +367,6 @@ with tab2:
         form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
         tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
 
-    # --- Estatísticas da 1ª Parte
     with st.form("form_live_base"):
         resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
         xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
@@ -414,7 +401,6 @@ with tab2:
         }
         st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
 
-    # --- ESCUTA DE EVENTOS LIVE ---
     if "eventos_live" not in st.session_state:
         st.session_state["eventos_live"] = []
 
@@ -460,9 +446,8 @@ with tab2:
     else:
         st.write("Nenhum evento registado ainda.")
 
-    # ---- PAINEL DE INTELIGÊNCIA: PauloDamas-GPT ----
     st.markdown("### 🤖 **PauloDamas-GPT** — Interpretação Tática Live")
-    resultado_actual = 0  # Podes ajustar para resultado real do jogo
+    resultado_actual = 0
     comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
     st.info(comentario)
 
@@ -489,13 +474,3 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
-
-
-
-
-
-
-
-
-
-
