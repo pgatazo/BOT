@@ -57,6 +57,7 @@ st.markdown("""
     .fixed-chat .chat-input {flex:1;}
     .fixed-chat .chat-emoji {font-size:20px; cursor:pointer;}
     section[data-testid="stSidebar"] {min-width:340px; width:340px;}
+    .block-container {padding-right:360px !important;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -142,7 +143,7 @@ posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
 meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
-# ======== SIDEBAR ESQUERDA: AJUSTE DE PESOS ========
+# ======== PAINEL DE PESOS (ESQUERDA) ========
 if "pesos" not in st.session_state:
     st.session_state["pesos"] = load_pesos()
 pesos = st.session_state["pesos"]
@@ -182,13 +183,11 @@ todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (no
 # ======== TABS ========
 tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
 
-# ======== BLOCO CENTRAL (PRÉ-JOGO) ========
+# ========================= BLOCO PRÉ-JOGO =========================
 with tab1:
     st.markdown('<div class="mainblock">', unsafe_allow_html=True)
 
     st.header("Análise Pré-Jogo (com fatores avançados)")
-    # --- LIGA E EQUIPAS ---
-    st.subheader("Seleção de Liga e Equipas")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
     if liga_escolhida == "Outra (nova liga personalizada)":
         nova_liga = st.text_input("Nome da nova liga personalizada:", key="nova_liga")
@@ -268,7 +267,6 @@ with tab1:
     st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
-    # --- Formações e Abordagem ---
     st.subheader("Formações e Estratégias")
     colf1, colf2 = st.columns(2)
     with colf1:
@@ -347,36 +345,27 @@ with tab1:
         }
         st.success("Totais confirmados!")
 
-    # BOTÃO PRINCIPAL
     if st.button("Gerar Análise e Odds Justa"):
-        # --- AJUSTES ---
         def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
             idx_c = lista.index(v_casa)
             idx_f = lista.index(v_fora)
             diff = idx_c - idx_f
             return 1 + diff * peso_c, 1 - diff * peso_f
 
-        # Formação, abordagem, titulares
         form_aj_casa, form_aj_fora = fator_delta(form_casa, form_fora, formacoes_lista, pesos["Formação_C"], pesos["Formação_F"])
         tipo_aj_casa, tipo_aj_fora = fator_delta(tipo_form_casa, tipo_form_fora, tipos_formacao, pesos["Formação_C"], pesos["Formação_F"])
         tit_aj_casa = 1 + (titulares_casa - 11) * pesos["Titulares_C"]
         tit_aj_fora = 1 + (titulares_fora - 11) * pesos["Titulares_F"]
-        # Motivação
         motiv_aj_casa = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa)-1) * pesos["Motivação_C"]
         motiv_aj_fora = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora)-1) * pesos["Motivação_F"]
-        # Árbitro
         arb_aj_casa = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_C"]
         arb_aj_fora = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_F"]
-        # Pressão
         press_aj_casa = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["Pressão_C"]
         press_aj_fora = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["Pressão_F"]
-        # Importância
         imp_aj_casa = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["Importância_C"]
         imp_aj_fora = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["Importância_F"]
-        # Desgaste
         des_aj_casa = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["Desgaste_C"]
         des_aj_fora = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["Desgaste_F"]
-        # Viagem
         viag_aj_casa = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
         viag_aj_fora = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
 
@@ -411,6 +400,12 @@ with tab1:
             "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
             "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
         })
+
+        # Soma dos pesos usados
+        soma_pesos_casa = sum([pesos[k] for k in pesos if "_C" in k])
+        soma_pesos_fora = sum([pesos[k] for k in pesos if "_F" in k])
+        st.info(f"Soma dos pesos CASA: **{soma_pesos_casa:.4f}** | Soma dos pesos FORA: **{soma_pesos_fora:.4f}**")
+        st.info(f"Diff Odd Calculada - Odd da Casa: CASA {round(odd_casa - odd_justa_casa,2)} | EMPATE {round(odd_empate-odd_justa_empate,2)} | FORA {round(odd_fora-odd_justa_fora,2)}")
 
         dist_ajustes = [
             ["Formação", form_aj_casa, form_aj_fora],
@@ -549,7 +544,6 @@ with tab2:
     else:
         st.write("Nenhum evento registado ainda.")
 
-    # Simples bloco de IA/Heurística Live
     def interpretar_tatica(eventos, live_base, resultado):
         return "Comentário de exemplo. Adapta com a tua lógica de IA ou heurística."
 
@@ -590,7 +584,6 @@ with tab2:
     st.markdown('</div>', unsafe_allow_html=True)
 
 # ====================== PAINEL FIXO DE CHAT À DIREITA ======================
-
 def emoji_bar():
     emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
     bar = ''.join([f'<span class="chat-emoji" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
