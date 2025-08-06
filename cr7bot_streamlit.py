@@ -161,6 +161,54 @@ tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
 # ========== TAB PRÉ-JOGO ==========
 with tab1:
     st.header("Análise Pré-Jogo (com fatores avançados)")
+
+    # ======================== PAINEL LATERAL DE PESOS & AJUSTES ========================
+    with st.sidebar:
+        st.markdown("## 📊 Resumo dos Ajustes & Pesos (tempo real)")
+
+        # Valores default para pesos (podes editar aqui)
+        default_pesos = {
+            "motivacao": 0.010,
+            "arbitro": 0.000,
+            "pressao": 0.020,
+            "importancia": 0.010,
+            "desgaste": 0.010,
+            "viagem": 0.010,
+            "formacao": 0.010,
+            "titulares": 0.010,
+        }
+        # Inicialização dos pesos (apenas se não estiverem em session_state)
+        if "pesos" not in st.session_state:
+            st.session_state["pesos"] = default_pesos.copy()
+            st.session_state["ajustes"] = {k: {"casa": 1.0, "fora": 1.0} for k in default_pesos}
+            st.session_state["vistos"] = {k: False for k in default_pesos}
+
+        # Ajuste dos pesos com + e -
+        for k, v in st.session_state["pesos"].items():
+            col1, col2, col3 = st.columns([1,1,7])
+            menos = col1.button("-", key=f"menos_{k}")
+            mais = col2.button("+", key=f"mais_{k}")
+            if menos:
+                st.session_state["pesos"][k] = max(0, round(st.session_state["pesos"][k] - 0.001, 3))
+                st.session_state["vistos"][k] = True
+            if mais:
+                st.session_state["pesos"][k] = min(1, round(st.session_state["pesos"][k] + 0.001, 3))
+                st.session_state["vistos"][k] = True
+            col3.write(f"**{k.capitalize()}**: {st.session_state['pesos'][k]:.3f} {'✅' if st.session_state['vistos'][k] else ''}")
+
+        st.markdown("---")
+        st.markdown("### Impacto de cada fator (Casa/Fora):")
+        # Exemplo: valores calculados para cada fator, casa e fora (update isto no código principal!)
+        for k in st.session_state["ajustes"]:
+            casa = st.session_state["ajustes"][k]["casa"]
+            fora = st.session_state["ajustes"][k]["fora"]
+            st.write(f"{k.capitalize()}: Casa {casa:.3f} | Fora {fora:.3f}")
+
+        total_casa = sum([st.session_state["ajustes"][k]["casa"] for k in st.session_state["ajustes"]])
+        total_fora = sum([st.session_state["ajustes"][k]["fora"] for k in st.session_state["ajustes"]])
+        st.success(f"**Total CASA:** {total_casa:.3f} | **Total FORA:** {total_fora:.3f}")
+
+    # ========================== PAINEL CENTRAL NORMAL ==========================
     # --- LIGA E EQUIPAS ---
     st.subheader("Seleção de Liga e Equipas")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
@@ -240,7 +288,20 @@ with tab1:
     with col_odds3:
         odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
     soma_odds = odd_casa + odd_empate + odd_fora
-    st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
+
+    # ====== NOVO: SOMA PESOS VISÍVEL + LIMITE ======
+    total_casa = sum([st.session_state["ajustes"][k]["casa"] for k in st.session_state["ajustes"]])
+    total_fora = sum([st.session_state["ajustes"][k]["fora"] for k in st.session_state["ajustes"]])
+    st.info(
+        f"Soma odds casa de apostas: **{soma_odds:.2f}**  |  "
+        f"Soma dos Pesos (CASA): **{total_casa:.3f}**  |  "
+        f"Soma dos Pesos (FORA): **{total_fora:.3f}**  |  "
+        f"Falta p/ máximo CASA: **{soma_odds-total_casa:.2f}**  |  "
+        f"Falta p/ máximo FORA: **{soma_odds-total_fora:.2f}**"
+    )
+    if total_casa > soma_odds or total_fora > soma_odds:
+        st.error("⚠️ Limite de ajuste ultrapassado! Ajuste os pesos ou as odds.")
+
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
     # --- Formações e Abordagem ---
@@ -252,6 +313,9 @@ with tab1:
     with colf2:
         form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
         tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
+
+    # (continua tudo igual, resto do bloco como já tens)
+
 
     # Titulares e ausentes
     st.subheader("Titulares disponíveis")
@@ -580,5 +644,6 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
