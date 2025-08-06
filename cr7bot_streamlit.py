@@ -1,6 +1,51 @@
 import streamlit as st
-import pandas as pd
-from io import BytesIO
+import hashlib
+import json
+import os
+
+USERS_FILE = "users.json"
+
+# ---------- Função para hashear passwords ----------
+def hash_pwd(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
+# ---------- Carregar utilizadores do ficheiro ----------
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        # Só tu de início!
+        base_users = {
+            "paulo": hash_pwd("damas2024"),
+            "admin": hash_pwd("admin123")
+        }
+        with open(USERS_FILE, "w") as f:
+            json.dump(base_users, f)
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+
+USERS = load_users()
+
+def login_screen():
+    st.title("🔒 Login - PauloDamas-GPT")
+    username = st.text_input("Utilizador")
+    password = st.text_input("Password", type="password")
+    login_btn = st.button("Entrar")
+
+    if login_btn:
+        if username in USERS and hash_pwd(password) == USERS[username]:
+            st.success(f"Bem-vindo, {username}!")
+            st.session_state.login_success = True
+            st.session_state.logged_user = username
+        else:
+            st.error("Credenciais inválidas ou não autorizado!")
+    return st.session_state.get("login_success", False)
+
+if "login_success" not in st.session_state or not st.session_state["login_success"]:
+    if not login_screen():
+        st.stop()
+
+# ---- App continua aqui ----
+st.write("⚽ Bem-vindo ao PauloDamas-GPT!")
+
 
 # ======= Funções utilitárias =======
 def kelly_criterion(prob, odd, banca, fracao=1):
@@ -417,3 +462,4 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
