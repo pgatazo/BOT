@@ -47,123 +47,200 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
         st.stop()
 
 # ---- App continua aqui ----
+import streamlit as st
+import hashlib
+import json
+import os
+import pandas as pd     # <--- Adiciona isto!
+from io import BytesIO  # <--- E isto também!
+
+
+USERS_FILE = "users.json"
+
+# ---------- Função para hashear passwords ----------
+def hash_pwd(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
+# ---------- Carregar utilizadores do ficheiro ----------
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        # Só tu de início!
+        base_users = {
+            "paulo": hash_pwd("damas2024"),
+            "admin": hash_pwd("admin123")
+        }
+        with open(USERS_FILE, "w") as f:
+            json.dump(base_users, f)
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+
+USERS = load_users()
+
+def login_screen():
+    st.title("🔒 Login - PauloDamas-GPT")
+    username = st.text_input("Utilizador")
+    password = st.text_input("Password", type="password")
+    login_btn = st.button("Entrar")
+
+    if login_btn:
+        if username in USERS and hash_pwd(password) == USERS[username]:
+            st.success(f"Bem-vindo, {username}!")
+            st.session_state.login_success = True
+            st.session_state.logged_user = username
+        else:
+            st.error("Credenciais inválidas ou não autorizado!")
+    return st.session_state.get("login_success", False)
+
+if "login_success" not in st.session_state or not st.session_state["login_success"]:
+    if not login_screen():
+        st.stop()
+
+# ---- App continua aqui ----
 st.write("⚽ Bem-vindo ao PauloDamas-GPT!")
 
-# --- Bloco de Ligas e Equipas Personalizadas ---
-CUSTOM_FILE = "ligas_e_equipas_custom.json"
 
-def load_custom():
-    if os.path.exists(CUSTOM_FILE):
-        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+# ======= Funções utilitárias =======
+def kelly_criterion(prob, odd, banca, fracao=1):
+    b = odd - 1
+    q = 1 - prob
+    f = ((b * prob - q) / b) * fracao
+    return max(0, banca * f)
+
+def calc_ev(p, o): return round(o * p - 1, 2)
+def to_excel(df):
+    output = BytesIO()
+    writer = pd.ExcelWriter(output, engine='xlsxwriter')
+    df.to_excel(writer, index=False, sheet_name='Resultados')
+    writer.close()
+    processed_data = output.getvalue()
+    return processed_data
+
+# ================== Listas e opções ==================
+formacoes_lista = [
+    "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
+    "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
+    "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
+    "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
+]
+tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
+tipos_troca = [
+    "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
+    "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
+    "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
+]
+posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
+importancias_lista = ["Peça chave", "Importante", "Normal"]
+meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
+
+# ================== Funções de Cálculo/Análise ==================
+def interpretar_tatica(eventos, live_base, resultado_actual):
+    if not eventos:
+        return "Sem eventos recentes. O treinador mantém o plano inicial."
+    comentario = ""
+    ultimo = eventos[-1]
+    equipa = ultimo["equipa"]
+    # --- Substituição
+    if ultimo["tipo"] == "Substituição":
+        tipo_troca = ultimo.get("tipo_troca", "")
+        if tipo_troca in ["Avançado por Médio", "Avançado por Defesa"]:
+            if resultado_actual < 0:
+                comentario = f"O treinador ({equipa}) abdica de ataque por meio-campo/defesa. Pode querer proteger-se de uma desvantagem maior ou equilibrar jogo."
+            else:
+                comentario = f"O treinador ({equipa}) está a fechar o jogo, reforçando meio-campo ou defesa, para segurar o resultado."
+        elif tipo_troca in ["Defesa por Avançado", "Médio por Avançado"]:
+            comentario = f"O treinador ({equipa}) lança mais ataque, quer virar o jogo ou pressionar para marcar."
+        elif tipo_troca == "Médio por Médio":
+            comentario = f"O treinador ({equipa}) mantém equilíbrio no meio-campo, sem grandes alterações táticas."
+        else:
+            comentario = f"Substituição sem alteração táctica evidente ({tipo_troca})."
+    # --- Mudança de formação
+    elif ultimo["tipo"] == "Mudança de formação":
+        nova_form = ultimo.get("nova_formacao", "")
+        tipo_nova = ultimo.get("tipo_formacao", "")
+        if tipo_nova == "Atacante":
+            comentario = f"O treinador ({equipa}) muda para formação mais ofensiva ({nova_form}). Procura marcar."
+        elif tipo_nova == "Defensivo":
+            comentario = f"O treinador ({equipa}) muda para formação defensiva ({nova_form}). Procura segurar resultado."
+        else:
+            comentario = f"Mudança de formação para ({nova_form}), mas mantém equilíbrio."
+    # --- Expulsão/Cartão
+    elif ultimo["tipo"] == "Expulsão":
+        pos = ultimo.get("posicao", "Desconhecida")
+        imp = ultimo.get("importancia", "Normal")
+        comentario = f"Expulsão ({imp}) na posição {pos} ({equipa}). A equipa vai ter de reajustar taticamente, provável recuo no bloco."
+    elif ultimo["tipo"] == "Amarelo":
+        pos = ultimo.get("posicao", "Desconhecida")
+        imp = ultimo.get("importancia", "Normal")
+        if pos in ["Defesa"]:
+            comentario = f"Cartão amarelo para {pos} ({equipa}). Defesa condicionado, pode obrigar a mudanças defensivas."
+        else:
+            comentario = f"Cartão amarelo para {pos} ({equipa})."
+    # --- Penalty/Golo
+    elif ultimo["tipo"] == "Penalty":
+        comentario = f"Penalty para {equipa}! O treinador pode arriscar tudo (se for a perder) ou manter equilíbrio (se for a ganhar)."
+    elif ultimo["tipo"] == "Golo":
+        comentario = f"Golo para {equipa}! Expectável resposta táctica do adversário."
     else:
-        return {}
+        comentario = "Sem alteração táctica identificada."
+    return "🤖 PauloDamas-GPT: " + comentario
 
-def save_custom(data):
-    with open(CUSTOM_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def calc_xg_live(dados, eventos):
+    xg_total_1p = dados["xg_casa"] + dados["xg_fora"]
+    xgot_total_1p = dados["xgot_casa"] + dados["xgot_fora"]
+    xg_ponderado = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
+    remates_baliza_total = dados["remates_baliza_casa"] + dados["remates_baliza_fora"]
+    grandes_ocasioes_total = dados["grandes_ocasioes_casa"] + dados["grandes_ocasioes_fora"]
+    remates_ferro_total = dados["remates_ferro_casa"] + dados["remates_ferro_fora"]
 
-# Ligas fixas
-ligas_fixas = {
-    "Liga Betclic": [
-        "Benfica", "Porto", "Sporting", "Braga", "Guimarães", "Casa Pia", "Boavista", "Estoril",
-        "Famalicão", "Farense", "Gil Vicente", "Moreirense", "Portimonense", "Rio Ave", "Arouca", "Vizela", "Chaves"
-    ],
-    "Premier League": [
-        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", "Burnley", "Chelsea",
-        "Crystal Palace", "Everton", "Fulham", "Liverpool", "Luton Town", "Manchester City",
-        "Manchester United", "Newcastle", "Nottingham Forest", "Sheffield United", "Tottenham",
-        "West Ham", "Wolves"
-    ],
-    "La Liga": [
-        "Real Madrid", "Barcelona", "Atlético Madrid", "Sevilla", "Betis", "Valencia", "Villarreal",
-        "Real Sociedad", "Athletic Bilbao", "Getafe", "Osasuna", "Celta Vigo", "Granada",
-        "Las Palmas", "Mallorca", "Alaves", "Rayo Vallecano", "Almeria", "Girona", "Cadiz"
-    ]
-}
+    ajuste = 1.0
+    diff_rating = dados["rating_casa"] - dados["rating_fora"]
+    ajuste += diff_rating * 0.10
+    if grandes_ocasioes_total >= 3: ajuste += 0.10
+    if remates_baliza_total >= 6: ajuste += 0.05
+    if xg_ponderado >= 1.0: ajuste += 0.10
+    if remates_ferro_total: ajuste += remates_ferro_total * 0.07
+    if dados["amarelos_casa"] >= 3: ajuste -= 0.05
+    if dados["amarelos_fora"] >= 3: ajuste -= 0.05
+    if dados["vermelhos_casa"]: ajuste -= 0.20 * dados["vermelhos_casa"]
+    if dados["vermelhos_fora"]: ajuste += 0.20 * dados["vermelhos_fora"]
+    # Eventos detalhados com impacto tático
+    for ev in eventos:
+        tipo = ev["tipo"]
+        eq = ev["equipa"]
+        if tipo == "Golo":
+            ajuste += 0.2 if eq == "Casa" else -0.2
+        elif tipo == "Expulsão":
+            ajuste -= 0.15 if eq == "Casa" else 0.15
+        elif tipo == "Penalty":
+            ajuste += 0.25 if eq == "Casa" else -0.25
+        elif tipo == "Substituição":
+            peso = 0
+            if ev.get("tipo_troca") == "Avançado por Médio":
+                peso = -0.08
+            elif ev.get("tipo_troca") == "Avançado por Defesa":
+                peso = -0.12
+            elif ev.get("tipo_troca") == "Médio por Avançado":
+                peso = +0.07
+            elif ev.get("tipo_troca") == "Defesa por Avançado":
+                peso = +0.10
+            elif ev.get("tipo_troca") == "Médio por Médio":
+                peso = 0
+            ajuste += peso if eq == "Casa" else -peso
+        elif tipo == "Mudança de formação":
+            impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
+            ajuste += impacto if eq == "Casa" else -impacto
+        elif tipo == "Amarelo":
+            pos = ev.get("posicao", "Desconhecida")
+            if pos == "Defesa":
+                ajuste -= 0.05 if eq == "Casa" else -0.05
+            elif pos == "Médio":
+                ajuste -= 0.03 if eq == "Casa" else -0.03
+            elif pos == "Avançado":
+                ajuste -= 0.01 if eq == "Casa" else -0.01
+    xg_2p = xg_ponderado * ajuste
+    return xg_2p, ajuste, xg_ponderado
 
-custom_data = load_custom()
-ligas_custom = custom_data.get("ligas", {})
-
-todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
-
-st.subheader("Seleção de Liga")
-liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
-
-# Adicionar nova liga personalizada
-if liga_escolhida == "Outra (nova liga personalizada)":
-    nova_liga = st.text_input("Nome da nova liga personalizada:", key="nova_liga")
-    if nova_liga:
-        if nova_liga not in todas_ligas:
-            ligas_custom[nova_liga] = []
-            custom_data["ligas"] = ligas_custom
-            save_custom(custom_data)
-            st.success(f"Liga '{nova_liga}' criada! Vai aparecer no menu ao recarregar.")
-        else:
-            st.info("Esta liga já existe.")
-    st.stop()
-
-# Equipas disponíveis para a liga selecionada
-if liga_escolhida in ligas_fixas:
-    equipas_disponiveis = ligas_fixas[liga_escolhida]
-elif liga_escolhida in ligas_custom:
-    equipas_disponiveis = ligas_custom[liga_escolhida]
-else:
-    equipas_disponiveis = []
-
-# Adicionar nova equipa personalizada à liga custom
-if liga_escolhida in ligas_custom:
-    equipa_nova = st.text_input(f"Adicionar nova equipa à '{liga_escolhida}':", key="equipa_nova")
-    if equipa_nova:
-        if equipa_nova not in equipas_disponiveis:
-            equipas_disponiveis.append(equipa_nova)
-            ligas_custom[liga_escolhida] = equipas_disponiveis
-            custom_data["ligas"] = ligas_custom
-            save_custom(custom_data)
-            st.success(f"Equipa '{equipa_nova}' adicionada à liga '{liga_escolhida}'!")
-        else:
-            st.info("Esta equipa já existe nesta liga.")
-
-# Seleção CASA e FORA, sempre diferentes
-equipa_casa = st.selectbox(
-    "Equipa da CASA",
-    equipas_disponiveis + (["Outra (personalizada)"] if "Outra (personalizada)" not in equipas_disponiveis else []),
-    key="equipa_casa"
-)
-equipa_fora = st.selectbox(
-    "Equipa FORA",
-    [e for e in equipas_disponiveis if e != equipa_casa] + (["Outra (personalizada)"] if equipa_casa != "Outra (personalizada)" and "Outra (personalizada)" not in equipas_disponiveis else []),
-    key="equipa_fora"
-)
-
-# Adicionar equipa personalizada à lista, se selecionado
-if equipa_casa == "Outra (personalizada)":
-    nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
-    if nova_casa:
-        if nova_casa not in equipas_disponiveis:
-            equipas_disponiveis.append(nova_casa)
-            if liga_escolhida in ligas_fixas:
-                st.warning("Apenas ligas personalizadas permitem guardar equipas para o futuro!")
-            else:
-                ligas_custom[liga_escolhida] = equipas_disponiveis
-                custom_data["ligas"] = ligas_custom
-                save_custom(custom_data)
-                st.success(f"Equipa '{nova_casa}' adicionada às opções!")
-        equipa_casa = nova_casa
-
-if equipa_fora == "Outra (personalizada)":
-    nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
-    if nova_fora:
-        if nova_fora not in equipas_disponiveis:
-            equipas_disponiveis.append(nova_fora)
-            if liga_escolhida in ligas_fixas:
-                st.warning("Apenas ligas personalizadas permitem guardar equipas para o futuro!")
-            else:
-                ligas_custom[liga_escolhida] = equipas_disponiveis
-                custom_data["ligas"] = ligas_custom
-                save_custom(custom_data)
-                st.success(f"Equipa '{nova_fora}' adicionada às opções!")
-        equipa_fora = nova_fora
+# ======= INÍCIO APP =======
 
 # ======= INÍCIO APP =======
 st.set_page_config(page_title="PauloDamas-GPT", layout="centered")
@@ -484,6 +561,7 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
 
