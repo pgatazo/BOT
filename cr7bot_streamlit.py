@@ -237,15 +237,12 @@ with tab1:
     # # ================== Meteorologia e Condições Especiais (Ajustado: Dia/Noite único) ==================
 st.subheader("Meteorologia e Condições Especiais")
 
-# --- Jogo Dia/Noite (único) ---
+# Dia ou noite? (único para o jogo)
 periodo = st.selectbox("⏰ O jogo é de Dia ou Noite?", ["Dia", "Noite"], key="periodo_jogo")
 
-# --- Meteorologia ---
-col_meteo = st.columns(2)
-with col_meteo[0]:
-    meteo_casa = st.selectbox("Meteorologia CASA", meteos_lista, key="meteo_casa")
-with col_meteo[1]:
-    meteo_fora = st.selectbox("Meteorologia FORA", meteos_lista, key="meteo_fora")
+# Meteorologia (único para o jogo)
+meteo_jogo = st.selectbox("☀️ Meteorologia esperada para o jogo", meteos_lista, key="meteo_jogo")
+
 
 
 # --- Árbitro (nota, tendência e média cartões) ---
@@ -511,6 +508,7 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
 
