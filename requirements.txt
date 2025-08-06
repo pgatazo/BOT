@@ -1,0 +1,5 @@
+pandas
+pytesseract
+opencv-python
+Pillow
+xlsxwriter
