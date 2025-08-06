@@ -273,57 +273,59 @@ with col_fora:
     desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
     viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
 
+# <--- ACABA AQUI as colunas!!!
 
-    # 4. Odds mercado
-    st.subheader("Odds da Casa de Apostas (1X2)")
-    col_odds1, col_odds2, col_odds3 = st.columns(3)
-    with col_odds1:
-        odd_casa = st.number_input("Odd Vitória CASA", min_value=1.0, value=1.90)
-    with col_odds2:
-        odd_empate = st.number_input("Odd EMPATE", min_value=1.0, value=3.10)
-    with col_odds3:
-        odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
-    soma_odds = odd_casa + odd_empate + odd_fora
-    st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
-    banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
+# 4. Odds mercado (FORA DE QUALQUER with col_X:)
+st.subheader("Odds da Casa de Apostas (1X2)")
+col_odds1, col_odds2, col_odds3 = st.columns(3)
+with col_odds1:
+    odd_casa = st.number_input("Odd Vitória CASA", min_value=1.0, value=1.90)
+with col_odds2:
+    odd_empate = st.number_input("Odd EMPATE", min_value=1.0, value=3.10)
+with col_odds3:
+    odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
+soma_odds = odd_casa + odd_empate + odd_fora
+st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
+banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
-    # ---- Totais e médias ----
-    with st.form("totais_golos_form"):
-        st.subheader("Equipa da CASA")
-        total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
-        total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
-        jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
-        media_marcados_casa = total_golos_casa / jogos_casa
-        media_sofridos_casa = total_sofridos_casa / jogos_casa
-        st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
+# ---- Totais e médias ----
+with st.form("totais_golos_form"):
+    st.subheader("Equipa da CASA")
+    total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
+    total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
+    jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
+    media_marcados_casa = total_golos_casa / jogos_casa
+    media_sofridos_casa = total_sofridos_casa / jogos_casa
+    st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
 
-        st.subheader("Equipa de FORA")
-        total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
-        total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
-        jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
-        media_marcados_fora = total_golos_fora / jogos_fora
-        media_sofridos_fora = total_sofridos_fora / jogos_fora
-        st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
+    st.subheader("Equipa de FORA")
+    total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
+    total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
+    jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
+    media_marcados_fora = total_golos_fora / jogos_fora
+    media_sofridos_fora = total_sofridos_fora / jogos_fora
+    st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
 
-        st.subheader("Confrontos Diretos (H2H)")
-        total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
-        total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
-        jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
-        media_h2h_casa = total_golos_h2h_casa / jogos_h2h
-        media_h2h_fora = total_golos_h2h_fora / jogos_h2h
-        st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
+    st.subheader("Confrontos Diretos (H2H)")
+    total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
+    total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
+    jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
+    media_h2h_casa = total_golos_h2h_casa / jogos_h2h
+    media_h2h_fora = total_golos_h2h_fora / jogos_h2h
+    st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
 
-        confirm1 = st.form_submit_button("✅ Confirmar Totais")
-    if confirm1:
-        st.session_state['medias'] = {
-            'marc_casa': media_marcados_casa,
-            'sofr_casa': media_sofridos_casa,
-            'marc_fora': media_marcados_fora,
-            'sofr_fora': media_sofridos_fora,
-            'marc_h2h_casa': media_h2h_casa,
-            'marc_h2h_fora': media_h2h_fora,
-        }
-        st.success("Totais confirmados!")
+    confirm1 = st.form_submit_button("✅ Confirmar Totais")
+if confirm1:
+    st.session_state['medias'] = {
+        'marc_casa': media_marcados_casa,
+        'sofr_casa': media_sofridos_casa,
+        'marc_fora': media_marcados_fora,
+        'sofr_fora': media_sofridos_fora,
+        'marc_h2h_casa': media_h2h_casa,
+        'marc_h2h_fora': media_h2h_fora,
+    }
+    st.success("Totais confirmados!")
+
 
     # 5. Cálculos Odds Justa e EV
 if st.button("Gerar Análise e Odds Justa"):
@@ -508,6 +510,7 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
 
