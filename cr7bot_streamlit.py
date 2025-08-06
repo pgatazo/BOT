@@ -4,12 +4,15 @@ import json
 import os
 import pandas as pd
 from io import BytesIO
+from datetime import datetime
 
+# ======== FICHEIROS ========
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
 PESOS_FILE = "pesos_personalizados.json"
+CHAT_FILE = "chat.json"
 
-# ====================== LOGIN ======================
+# ======== LOGIN =========
 def hash_pwd(pwd):
     return hashlib.sha256(pwd.encode()).hexdigest()
 
@@ -44,9 +47,22 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
         st.stop()
 
 st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
-st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA de Treinador")
+st.markdown("""
+    <style>
+    .mainblock {max-width: 980px; margin-left: auto; margin-right: auto;}
+    .fixed-chat {position:fixed; top:0; right:0; width:340px; height:100vh; background:#f7f7fb; border-left:1.5px solid #ddd; z-index:9999; padding:12px 18px 85px 12px; overflow-y:auto;}
+    .fixed-chat .chat-title {font-weight:bold; font-size:21px; margin-bottom:8px;}
+    .fixed-chat .chat-box {height:65vh;overflow-y:auto; background:#fff; border-radius:9px; box-shadow:0 0 6px #eee; padding:10px; margin-bottom:8px;}
+    .fixed-chat .chat-input-row {display:flex; gap:5px;}
+    .fixed-chat .chat-input {flex:1;}
+    .fixed-chat .chat-emoji {font-size:20px; cursor:pointer;}
+    section[data-testid="stSidebar"] {min-width:340px; width:340px;}
+    </style>
+""", unsafe_allow_html=True)
 
-# ======== Funções Utilitárias ==========
+st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
+
+# ======== FUNÇÕES UTILITÁRIAS ========
 def kelly_criterion(prob, odd, banca, fracao=1):
     b = odd - 1
     q = 1 - prob
@@ -84,7 +100,6 @@ def load_pesos():
         with open(PESOS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     else:
-        # Defaults
         return {
             "Motivação_C": 0.01, "Motivação_F": 0.01,
             "Árbitro_C": 0.00, "Árbitro_F": 0.00,
@@ -96,7 +111,21 @@ def load_pesos():
             "Titulares_C": 0.01, "Titulares_F": 0.01
         }
 
-# ========== Listas ==========
+def save_message(user, msg, dt=None):
+    chat = load_chat()
+    if dt is None:
+        dt = datetime.now().strftime('%H:%M')
+    chat.append({"user": user, "msg": msg, "dt": dt})
+    with open(CHAT_FILE, "w", encoding="utf-8") as f:
+        json.dump(chat, f, ensure_ascii=False, indent=2)
+
+def load_chat():
+    if os.path.exists(CHAT_FILE):
+        with open(CHAT_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+# ======== LISTAS ========
 formacoes_lista = [
     "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
     "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
@@ -113,27 +142,22 @@ posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
 meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
-# =================== PAINEL LATERAL DE PESOS ===================
+# ======== SIDEBAR ESQUERDA: AJUSTE DE PESOS ========
 if "pesos" not in st.session_state:
     st.session_state["pesos"] = load_pesos()
-
-st.sidebar.title("📊 Painel de Pesos - Casa & Fora (Ajustáveis)")
-def peso_input(nome, default, key):
-    val = st.sidebar.number_input(f"{nome}", min_value=-0.1, max_value=0.1, value=default, step=0.001, key=key)
-    st.session_state["pesos"][nome] = val
-    return val
-
 pesos = st.session_state["pesos"]
+
+st.sidebar.title("📊 Painel de Pesos (ajustável)")
 for fator in ["Motivação", "Árbitro", "Pressão", "Importância", "Desgaste", "Viagem", "Formação", "Titulares"]:
-    pesos[f"{fator}_C"] = peso_input(f"Peso {fator} CASA", pesos.get(f"{fator}_C", 0.01), f"peso_{fator.lower()}_c")
-    pesos[f"{fator}_F"] = peso_input(f"Peso {fator} FORA", pesos.get(f"{fator}_F", 0.01), f"peso_{fator.lower()}_f")
+    pesos[f"{fator}_C"] = st.sidebar.number_input(f"Peso {fator} CASA", min_value=-0.1, max_value=0.1, value=pesos.get(f"{fator}_C", 0.01), step=0.001, key=f"peso_{fator.lower()}_c")
+    pesos[f"{fator}_F"] = st.sidebar.number_input(f"Peso {fator} FORA", min_value=-0.1, max_value=0.1, value=pesos.get(f"{fator}_F", 0.01), step=0.001, key=f"peso_{fator.lower()}_f")
 if st.sidebar.button("💾 Gravar Pesos Personalizados"):
     save_pesos(pesos)
     st.sidebar.success("Pesos guardados!")
 st.sidebar.markdown("---")
 st.sidebar.markdown("⚠️ *Ajusta os pesos se a análise não estiver justa!*")
 
-# ========================================
+# ======== LIGAS E EQUIPAS ========
 custom_data = load_custom()
 ligas_fixas = {
     "Liga Betclic": [
@@ -155,60 +179,14 @@ ligas_fixas = {
 ligas_custom = custom_data.get("ligas", {})
 todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
 
-# ========== TABS ==========
+# ======== TABS ========
 tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
 
-# ========== TAB PRÉ-JOGO ==========
+# ======== BLOCO CENTRAL (PRÉ-JOGO) ========
 with tab1:
+    st.markdown('<div class="mainblock">', unsafe_allow_html=True)
+
     st.header("Análise Pré-Jogo (com fatores avançados)")
-
-    # ======================== PAINEL LATERAL DE PESOS & AJUSTES ========================
-    with st.sidebar:
-        st.markdown("## 📊 Resumo dos Ajustes & Pesos (tempo real)")
-
-        # Valores default para pesos (podes editar aqui)
-        default_pesos = {
-            "motivacao": 0.010,
-            "arbitro": 0.000,
-            "pressao": 0.020,
-            "importancia": 0.010,
-            "desgaste": 0.010,
-            "viagem": 0.010,
-            "formacao": 0.010,
-            "titulares": 0.010,
-        }
-        # Inicialização dos pesos (apenas se não estiverem em session_state)
-        if "pesos" not in st.session_state:
-            st.session_state["pesos"] = default_pesos.copy()
-            st.session_state["ajustes"] = {k: {"casa": 1.0, "fora": 1.0} for k in default_pesos}
-            st.session_state["vistos"] = {k: False for k in default_pesos}
-
-        # Ajuste dos pesos com + e -
-        for k, v in st.session_state["pesos"].items():
-            col1, col2, col3 = st.columns([1,1,7])
-            menos = col1.button("-", key=f"menos_{k}")
-            mais = col2.button("+", key=f"mais_{k}")
-            if menos:
-                st.session_state["pesos"][k] = max(0, round(st.session_state["pesos"][k] - 0.001, 3))
-                st.session_state["vistos"][k] = True
-            if mais:
-                st.session_state["pesos"][k] = min(1, round(st.session_state["pesos"][k] + 0.001, 3))
-                st.session_state["vistos"][k] = True
-            col3.write(f"**{k.capitalize()}**: {st.session_state['pesos'][k]:.3f} {'✅' if st.session_state['vistos'][k] else ''}")
-
-        st.markdown("---")
-        st.markdown("### Impacto de cada fator (Casa/Fora):")
-        # Exemplo: valores calculados para cada fator, casa e fora (update isto no código principal!)
-        for k in st.session_state["ajustes"]:
-            casa = st.session_state["ajustes"][k]["casa"]
-            fora = st.session_state["ajustes"][k]["fora"]
-            st.write(f"{k.capitalize()}: Casa {casa:.3f} | Fora {fora:.3f}")
-
-        total_casa = sum([st.session_state["ajustes"][k]["casa"] for k in st.session_state["ajustes"]])
-        total_fora = sum([st.session_state["ajustes"][k]["fora"] for k in st.session_state["ajustes"]])
-        st.success(f"**Total CASA:** {total_casa:.3f} | **Total FORA:** {total_fora:.3f}")
-
-    # ========================== PAINEL CENTRAL NORMAL ==========================
     # --- LIGA E EQUIPAS ---
     st.subheader("Seleção de Liga e Equipas")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
@@ -278,7 +256,6 @@ with tab1:
                     st.success(f"Equipa '{nova_fora}' adicionada às opções!")
             equipa_fora = nova_fora
 
-    # Odds logo após equipas!
     st.subheader("Odds da Casa de Apostas (1X2)")
     col_odds1, col_odds2, col_odds3 = st.columns(3)
     with col_odds1:
@@ -288,20 +265,7 @@ with tab1:
     with col_odds3:
         odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
     soma_odds = odd_casa + odd_empate + odd_fora
-
-    # ====== NOVO: SOMA PESOS VISÍVEL + LIMITE ======
-    total_casa = sum([st.session_state["ajustes"][k]["casa"] for k in st.session_state["ajustes"]])
-    total_fora = sum([st.session_state["ajustes"][k]["fora"] for k in st.session_state["ajustes"]])
-    st.info(
-        f"Soma odds casa de apostas: **{soma_odds:.2f}**  |  "
-        f"Soma dos Pesos (CASA): **{total_casa:.3f}**  |  "
-        f"Soma dos Pesos (FORA): **{total_fora:.3f}**  |  "
-        f"Falta p/ máximo CASA: **{soma_odds-total_casa:.2f}**  |  "
-        f"Falta p/ máximo FORA: **{soma_odds-total_fora:.2f}**"
-    )
-    if total_casa > soma_odds or total_fora > soma_odds:
-        st.error("⚠️ Limite de ajuste ultrapassado! Ajuste os pesos ou as odds.")
-
+    st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
     # --- Formações e Abordagem ---
@@ -314,20 +278,14 @@ with tab1:
         form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
         tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
 
-    # (continua tudo igual, resto do bloco como já tens)
-
-
-    # Titulares e ausentes
     st.subheader("Titulares disponíveis")
     titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
     titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
 
-    # Meteorologia
     st.subheader("Meteorologia e Condições Especiais")
     periodo_jogo = st.selectbox("Quando se realiza o jogo?", ["Dia", "Noite"], key="periodo_jogo")
     meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
 
-    # Árbitro
     st.subheader("Árbitro e Tendência de Cartões")
     col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
     with col_arbitro1:
@@ -337,7 +295,6 @@ with tab1:
     with col_arbitro3:
         media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
 
-    # Motivação, pressão, etc.
     st.subheader("Motivação e Condições Especiais (CASA e FORA)")
     col_casa, col_fora = st.columns(2)
     with col_casa:
@@ -353,7 +310,7 @@ with tab1:
         desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
         viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
 
-    # MÉDIAS E H2H
+    # ------ MÉDIAS E H2H -------
     with st.form("totais_golos_form"):
         st.subheader("Equipa da CASA")
         total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
@@ -390,24 +347,21 @@ with tab1:
         }
         st.success("Totais confirmados!")
 
-    # ================== BOTÃO PRINCIPAL E CÁLCULO ====================
+    # BOTÃO PRINCIPAL
     if st.button("Gerar Análise e Odds Justa"):
-        # Cálculos das diferenças de fatores (em vez de só aplicar igual)
+        # --- AJUSTES ---
         def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
             idx_c = lista.index(v_casa)
             idx_f = lista.index(v_fora)
             diff = idx_c - idx_f
             return 1 + diff * peso_c, 1 - diff * peso_f
 
-        # Ajuste formação
+        # Formação, abordagem, titulares
         form_aj_casa, form_aj_fora = fator_delta(form_casa, form_fora, formacoes_lista, pesos["Formação_C"], pesos["Formação_F"])
-        # Ajuste abordagem (mais atacante/defensivo)
         tipo_aj_casa, tipo_aj_fora = fator_delta(tipo_form_casa, tipo_form_fora, tipos_formacao, pesos["Formação_C"], pesos["Formação_F"])
-        # Ajuste titulares
         tit_aj_casa = 1 + (titulares_casa - 11) * pesos["Titulares_C"]
         tit_aj_fora = 1 + (titulares_fora - 11) * pesos["Titulares_F"]
-
-        # Ajuste motivação
+        # Motivação
         motiv_aj_casa = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa)-1) * pesos["Motivação_C"]
         motiv_aj_fora = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora)-1) * pesos["Motivação_F"]
         # Árbitro
@@ -426,23 +380,18 @@ with tab1:
         viag_aj_casa = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
         viag_aj_fora = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
 
-        # AJUSTE TOTAL (Produto de todos os fatores)
         ajuste_total_casa = form_aj_casa * tipo_aj_casa * tit_aj_casa * motiv_aj_casa * arb_aj_casa * press_aj_casa * imp_aj_casa * des_aj_casa * viag_aj_casa
         ajuste_total_fora = form_aj_fora * tipo_aj_fora * tit_aj_fora * motiv_aj_fora * arb_aj_fora * press_aj_fora * imp_aj_fora * des_aj_fora * viag_aj_fora
 
-        # Probabilidades base (só médias)
         prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
         prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
         prob_empate = 1 - (prob_casa + prob_fora)
-
-        # Aplicar ajustes
         prob_casa_aj = prob_casa * ajuste_total_casa
         prob_fora_aj = prob_fora * ajuste_total_fora
         prob_empate_aj = max(1 - (prob_casa_aj + prob_fora_aj), 0.01)
         total_prob_aj = prob_casa_aj + prob_empate_aj + prob_fora_aj
         prob_casa_aj, prob_empate_aj, prob_fora_aj = [p/total_prob_aj for p in [prob_casa_aj, prob_empate_aj, prob_fora_aj]]
 
-        # Odds justas e EV
         odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
         odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
         odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
@@ -453,7 +402,6 @@ with tab1:
         stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
         stake_fora = kelly_criterion(prob_fora_aj, odd_fora, banca)
 
-        # Resultados
         df_res = pd.DataFrame({
             "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
             "Odd": [odd_casa, odd_empate, odd_fora],
@@ -464,7 +412,6 @@ with tab1:
             "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
         })
 
-        # Tabela dos ajustes
         dist_ajustes = [
             ["Formação", form_aj_casa, form_aj_fora],
             ["Abordagem", tipo_aj_casa, tipo_aj_fora],
@@ -480,7 +427,6 @@ with tab1:
         ]
         distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
-        # Resumo Inputs
         resumo_dict = {
             "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
             "Formação CASA": [form_casa], "Formação FORA": [form_fora],
@@ -500,7 +446,6 @@ with tab1:
         resumo_df = pd.DataFrame(resumo_dict)
         pesos_df = pd.DataFrame([pesos])
 
-        # Apresentação
         st.subheader("Resultados da Análise")
         st.dataframe(df_res)
         st.subheader("Distribuição dos Ajustes & Pesos (Casa / Fora)")
@@ -510,12 +455,14 @@ with tab1:
         relatorio = to_excel(df_res, distrib_df, resumo_df, pesos_df)
         st.download_button("⬇️ Download Relatório Completo (Excel)", data=relatorio, file_name="analise_prejogo_completa.xlsx")
         st.success("Análise pronta! Consulta apostas recomendadas, detalhes dos ajustes e exporta tudo para Excel.")
-# ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ======== BLOCO CENTRAL (LIVE/2ª PARTE) ========
 with tab2:
+    st.markdown('<div class="mainblock">', unsafe_allow_html=True)
     st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + IA)")
 
-    # --- Formação inicial live + abordagem ---
-    st.subheader("Formações e Estratégias (início da 2ª parte)")
     col_livef1, col_livef2 = st.columns(2)
     with col_livef1:
         form_casa_live = st.selectbox("Formação CASA (Live)", formacoes_lista, key="form_casa_live")
@@ -524,7 +471,6 @@ with tab2:
         form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
         tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
 
-    # --- Estatísticas da 1ª Parte
     with st.form("form_live_base"):
         resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
         xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
@@ -559,7 +505,6 @@ with tab2:
         }
         st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
 
-    # --- ESCUTA DE EVENTOS LIVE ---
     if "eventos_live" not in st.session_state:
         st.session_state["eventos_live"] = []
 
@@ -567,7 +512,6 @@ with tab2:
     tipo_evento = st.selectbox("Tipo de evento", ["Golo", "Expulsão", "Penalty", "Substituição", "Mudança de formação", "Amarelo"])
     equipa_evento = st.selectbox("Equipa", ["Casa", "Fora"])
     detalhes_evento = st.text_input("Detalhes (opcional)", key="detalhes_ev")
-
     posicao_ev, tipo_troca_ev, nova_form_ev, tipo_form_ev, imp_ev = None, None, None, None, None
     if tipo_evento in ["Expulsão", "Amarelo"]:
         posicao_ev = st.selectbox("Posição do jogador", posicoes_lista, key="pos_ev")
@@ -605,19 +549,17 @@ with tab2:
     else:
         st.write("Nenhum evento registado ainda.")
 
-    # ---- PAINEL DE INTELIGÊNCIA: PauloDamas-GPT ----
-    # Aqui deves implementar a tua função de análise tática live:
+    # Simples bloco de IA/Heurística Live
     def interpretar_tatica(eventos, live_base, resultado):
         return "Comentário de exemplo. Adapta com a tua lógica de IA ou heurística."
 
     def calc_xg_live(live_base, eventos):
-        # Exemplo simples: soma de xG e xGOT + ponderação por eventos
         base_xg = (live_base.get("xg_casa", 0) + live_base.get("xg_fora", 0))/2
         ajuste = len(eventos) * 0.07
         return base_xg + ajuste, ajuste, base_xg
 
     st.markdown("### 🤖 **PauloDamas-GPT** — Interpretação Tática Live")
-    resultado_actual = 0  # Podes ajustar para resultado real do jogo
+    resultado_actual = 0
     comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
     st.info(comentario)
 
@@ -645,5 +587,41 @@ with tab2:
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
 
+    st.markdown('</div>', unsafe_allow_html=True)
 
+# ====================== PAINEL FIXO DE CHAT À DIREITA ======================
 
+def emoji_bar():
+    emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
+    bar = ''.join([f'<span class="chat-emoji" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
+    st.markdown(f"""
+    <div style='margin-bottom:5px;'>{bar}</div>
+    <script>
+    function addEmoji(e) {{
+        var chat_input = window.parent.document.querySelector('textarea[aria-label="Message to PauloDamas-GPT"]');
+        if (chat_input) {{
+            chat_input.value += e;
+            chat_input.focus();
+        }}
+    }}
+    </script>
+    """, unsafe_allow_html=True)
+
+with st.container():
+    st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
+    st.markdown('<div class="chat-title">💬 Chat Global</div>', unsafe_allow_html=True)
+    chat_msgs = load_chat()[-120:]
+    st.markdown('<div class="chat-box">', unsafe_allow_html=True)
+    for m in chat_msgs:
+        u, msg, dt = m['user'], m['msg'], m['dt']
+        userstyle = "font-weight:700;color:#3131b0" if u==st.session_state['logged_user'] else "font-weight:500"
+        st.markdown(f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:</div><div style='margin-left:9px;margin-bottom:5px;font-size:16px'>{msg}</div>", unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    emoji_bar()
+    with st.form(key="chat_form", clear_on_submit=True):
+        msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
+        enviar = st.form_submit_button("Enviar")
+        if enviar and msg.strip():
+            save_message(st.session_state["logged_user"], msg.strip())
+            st.experimental_rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
