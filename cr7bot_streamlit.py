@@ -2,6 +2,9 @@ import streamlit as st
 import hashlib
 import json
 import os
+import pandas as pd     # <--- Adiciona isto!
+from io import BytesIO  # <--- E isto também!
+
 
 USERS_FILE = "users.json"
 
@@ -462,4 +465,5 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
