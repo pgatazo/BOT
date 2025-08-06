@@ -329,50 +329,63 @@ with col_fora:
         st.success("Totais confirmados!")
 
     # 5. Cálculos Odds Justa e EV
-    if st.button("Gerar Análise e Odds Justa"):
-        # Calcular probabilidade base de cada resultado:
-        prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
-        prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
-        prob_empate = 1 - (prob_casa + prob_fora)
-        # Ajustes de motivação, árbitro, pressão, etc.
-        ajuste_motiv = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao) - 1) * 0.04
-        ajuste_arbitro = 1.00 + ((arbitro - 5) / 10) * 0.04
-        ajuste_pressao = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos)) * 0.02
-        ajuste_import = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo)) * 0.03
-        ajuste_fisico = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico)) * 0.02
-        ajuste_viagem = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem)) * 0.01
-        # Aplicar todos os ajustes
-        ajuste_total = ajuste_motiv * ajuste_arbitro * ajuste_pressao * ajuste_import * ajuste_fisico * ajuste_viagem
-        prob_casa *= ajuste_total
-        prob_fora *= ajuste_total
-        prob_empate = 1 - (prob_casa + prob_fora)
+if st.button("Gerar Análise e Odds Justa"):
+    # --- Ajustes individuais CASA ---
+    ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * 0.04
+    ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * 0.04
+    ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * 0.02
+    ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * 0.03
+    ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * 0.02
+    ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * 0.01
+    ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
 
-        odd_justa_casa = 1 / (prob_casa + 1e-7)
-        odd_justa_empate = 1 / (prob_empate + 1e-7)
-        odd_justa_fora = 1 / (prob_fora + 1e-7)
+    # --- Ajustes individuais FORA ---
+    ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * 0.04
+    ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * 0.04
+    ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * 0.02
+    ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * 0.03
+    ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * 0.02
+    ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * 0.01
+    ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
 
-        ev_casa = calc_ev(prob_casa, odd_casa)
-        ev_empate = calc_ev(prob_empate, odd_empate)
-        ev_fora = calc_ev(prob_fora, odd_fora)
+    # --- Cálculo base das probabilidades ---
+    prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
+    prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
+    prob_empate = 1 - (prob_casa + prob_fora)
 
-        stake_casa = kelly_criterion(prob_casa, odd_casa, banca)
-        stake_empate = kelly_criterion(prob_empate, odd_empate, banca)
-        stake_fora = kelly_criterion(prob_fora, odd_fora, banca)
+    # --- Aplicar ajustes individuais a cada equipa ---
+    prob_casa *= ajuste_total_casa
+    prob_fora *= ajuste_total_fora
+    prob_empate = 1 - (prob_casa + prob_fora)
 
-        df_res = pd.DataFrame({
-            "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
-            "Odd": [odd_casa, odd_empate, odd_fora],
-            "Odd Justa": [round(odd_justa_casa,2), round(odd_justa_empate,2), round(odd_justa_fora,2)],
-            "Prob. (%)": [round(prob_casa*100,1), round(prob_empate*100,1), round(prob_fora*100,1)],
-            "EV": [ev_casa, ev_empate, ev_fora],
-            "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
-            "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
-        })
+    # --- Restantes cálculos ---
+    odd_justa_casa = 1 / (prob_casa + 1e-7)
+    odd_justa_empate = 1 / (prob_empate + 1e-7)
+    odd_justa_fora = 1 / (prob_fora + 1e-7)
 
-        st.subheader("Resultados da Análise")
-        st.dataframe(df_res)
-        st.download_button("⬇️ Download Excel", data=to_excel(df_res), file_name="analise_prejogo_paulo_gpt.xlsx")
-        st.success("Análise pronta! Consulta apostas recomendadas na tabela acima.")
+    ev_casa = calc_ev(prob_casa, odd_casa)
+    ev_empate = calc_ev(prob_empate, odd_empate)
+    ev_fora = calc_ev(prob_fora, odd_fora)
+
+    stake_casa = kelly_criterion(prob_casa, odd_casa, banca)
+    stake_empate = kelly_criterion(prob_empate, odd_empate, banca)
+    stake_fora = kelly_criterion(prob_fora, odd_fora, banca)
+
+    df_res = pd.DataFrame({
+        "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
+        "Odd": [odd_casa, odd_empate, odd_fora],
+        "Odd Justa": [round(odd_justa_casa,2), round(odd_justa_empate,2), round(odd_justa_fora,2)],
+        "Prob. (%)": [round(prob_casa*100,1), round(prob_empate*100,1), round(prob_fora*100,1)],
+        "EV": [ev_casa, ev_empate, ev_fora],
+        "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
+        "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
+    })
+
+    st.subheader("Resultados da Análise")
+    st.dataframe(df_res)
+    st.download_button("⬇️ Download Excel", data=to_excel(df_res), file_name="analise_prejogo_paulo_gpt.xlsx")
+    st.success("Análise pronta! Consulta apostas recomendadas na tabela acima.")
+
 
 # ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
 with tab2:
@@ -498,6 +511,7 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
 
 
 
