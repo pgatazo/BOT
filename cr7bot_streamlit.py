@@ -7,6 +7,7 @@ from io import BytesIO
 
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
+PESOS_FILE = "pesos_ajustes.json"
 
 # ====================== LOGIN ======================
 def hash_pwd(pwd):
@@ -62,6 +63,38 @@ def to_excel(df, distrib, resumo):
         resumo.to_excel(writer, index=False, sheet_name='Resumo Inputs')
     return output.getvalue()
 
+# ========== AJUSTE DE PESOS ==========
+PESOS_DEFAULT = {
+    "motivacao": 0.04,
+    "arbitro": 0.04,
+    "pressao": 0.02,
+    "importancia": 0.03,
+    "desgaste": 0.02,
+    "viagem": 0.01
+}
+def load_pesos():
+    if os.path.exists(PESOS_FILE):
+        with open(PESOS_FILE, "r") as f:
+            return json.load(f)
+    return PESOS_DEFAULT.copy()
+
+def save_pesos(pesos):
+    with open(PESOS_FILE, "w") as f:
+        json.dump(pesos, f, indent=2)
+
+if "pesos" not in st.session_state:
+    st.session_state["pesos"] = load_pesos()
+
+def ajuste_control(label, peso_key, minimo=0.0, maximo=0.2, step=0.01):
+    col1, col2, col3 = st.columns([3,1,1])
+    col1.write(f"{label}: {st.session_state['pesos'][peso_key]:.3f}")
+    if col2.button("➖", key=f"minus_{peso_key}"):
+        st.session_state['pesos'][peso_key] = max(minimo, round(st.session_state['pesos'][peso_key]-step,3))
+        save_pesos(st.session_state['pesos'])
+    if col3.button("➕", key=f"plus_{peso_key}"):
+        st.session_state['pesos'][peso_key] = min(maximo, round(st.session_state['pesos'][peso_key]+step,3))
+        save_pesos(st.session_state['pesos'])
+
 # ========== Listas ==========
 formacoes_lista = [
     "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
@@ -114,6 +147,18 @@ todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (no
 
 # ========== TABS ==========
 tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
+
+# ========== PAINEL RESUMO (sidebar) ==========
+with st.sidebar:
+    st.header("🔎 Painel Resumo & Ajuste Pesos")
+    ajuste_control("Peso Motivação", "motivacao")
+    ajuste_control("Peso Árbitro", "arbitro")
+    ajuste_control("Peso Pressão Adeptos", "pressao")
+    ajuste_control("Peso Importância", "importancia")
+    ajuste_control("Peso Desgaste", "desgaste")
+    ajuste_control("Peso Viagem", "viagem")
+    st.markdown("---")
+    st.write("Pesos gravados em `pesos_ajustes.json`.")
 
 # ========== TAB PRÉ-JOGO ==========
 with tab1:
@@ -307,38 +352,64 @@ if confirm1:
     }
     st.success("Totais confirmados!")
 
+# ---- Painel resumo intermédio (em baixo dos inputs principais) ----
+with st.expander("📊 Resumo dos Ajustes & Pesos (em tempo real)", expanded=True):
+    pesos = st.session_state['pesos']
+    st.write("**Pesos em uso:**")
+    for k, v in pesos.items():
+        st.write(f"- {k.capitalize()}: {v:.3f}")
 
-    # 5. Cálculos Odds Justa e EV
+    st.write("**Ajustes calculados para CASA/FORA:**")
+    try:
+        ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * pesos["motivacao"]
+        ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
+        ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["pressao"]
+        ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["importancia"]
+        ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["desgaste"]
+        ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["viagem"]
+        ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
+
+        ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * pesos["motivacao"]
+        ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
+        ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["pressao"]
+        ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["importancia"]
+        ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["desgaste"]
+        ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["viagem"]
+        ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
+
+        st.write(f"**CASA**: Motiv:{ajuste_motiv_casa:.3f} | Árbitro:{ajuste_arbitro_casa:.3f} | Pressão:{ajuste_pressao_casa:.3f} | Import:{ajuste_import_casa:.3f} | Desgaste:{ajuste_fisico_casa:.3f} | Viagem:{ajuste_viagem_casa:.3f} | TOTAL: {ajuste_total_casa:.3f}")
+        st.write(f"**FORA**: Motiv:{ajuste_motiv_fora:.3f} | Árbitro:{ajuste_arbitro_fora:.3f} | Pressão:{ajuste_pressao_fora:.3f} | Import:{ajuste_import_fora:.3f} | Desgaste:{ajuste_fisico_fora:.3f} | Viagem:{ajuste_viagem_fora:.3f} | TOTAL: {ajuste_total_fora:.3f}")
+    except Exception as e:
+        st.info("Preenche todos os campos para ver o resumo dos ajustes.")
+
+# 5. Cálculos Odds Justa e EV
 if st.button("Gerar Análise e Odds Justa"):
-    # --- Ajustes individuais CASA ---
-    ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * 0.04
-    ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * 0.04
-    ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * 0.02
-    ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * 0.03
-    ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * 0.02
-    ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * 0.01
+    # Usar pesos atuais!
+    pesos = st.session_state['pesos']
+    ajuste_motiv_casa = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa) - 1) * pesos["motivacao"]
+    ajuste_arbitro_casa = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
+    ajuste_pressao_casa = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["pressao"]
+    ajuste_import_casa = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["importancia"]
+    ajuste_fisico_casa = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["desgaste"]
+    ajuste_viagem_casa = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["viagem"]
     ajuste_total_casa = ajuste_motiv_casa * ajuste_arbitro_casa * ajuste_pressao_casa * ajuste_import_casa * ajuste_fisico_casa * ajuste_viagem_casa
 
-    # --- Ajustes individuais FORA ---
-    ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * 0.04
-    ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * 0.04
-    ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * 0.02
-    ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * 0.03
-    ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * 0.02
-    ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * 0.01
+    ajuste_motiv_fora = 1.00 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora) - 1) * pesos["motivacao"]
+    ajuste_arbitro_fora = 1.00 + ((arbitro - 5) / 10) * pesos["arbitro"]
+    ajuste_pressao_fora = 1.00 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["pressao"]
+    ajuste_import_fora = 1.00 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["importancia"]
+    ajuste_fisico_fora = 1.00 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["desgaste"]
+    ajuste_viagem_fora = 1.00 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["viagem"]
     ajuste_total_fora = ajuste_motiv_fora * ajuste_arbitro_fora * ajuste_pressao_fora * ajuste_import_fora * ajuste_fisico_fora * ajuste_viagem_fora
 
-    # --- Cálculo base das probabilidades ---
     prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7)
     prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7)
     prob_empate = 1 - (prob_casa + prob_fora)
 
-    # --- Aplicar ajustes individuais a cada equipa ---
     prob_casa_aj = prob_casa * ajuste_total_casa
     prob_fora_aj = prob_fora * ajuste_total_fora
     prob_empate_aj = 1 - (prob_casa_aj + prob_fora_aj)
 
-    # --- Restantes cálculos ---
     odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
     odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
     odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
@@ -534,3 +605,4 @@ with tab2:
     if st.button("🗑️ Limpar eventos LIVE"):
         st.session_state["eventos_live"] = []
         st.success("Lista de eventos live limpa!")
+
