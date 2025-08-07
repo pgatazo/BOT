@@ -633,55 +633,33 @@ def emoji_bar():
     </script>
     """, unsafe_allow_html=True)
 
-# ====== CHAT GLOBAL NO TOPO DIREITA ======
-st.markdown("""
-<style>
-.fixed-chat {
-    position: fixed;
-    top: 0;  /* Se quiseres não colado ao topo, mete top: 60px por exemplo */
-    right: 0;
-    width: 340px;
-    height: 100vh;
-    background: #f7f7fb;
-    border-left: 1.5px solid #ddd;
-    z-index: 9999;
-    padding: 12px 18px 85px 12px;
-    overflow-y: auto;
-}
-.fixed-chat .chat-title {font-weight:bold; font-size:21px; margin-bottom:8px;}
-.fixed-chat .chat-box {height:52vh;overflow-y:auto; background:#fff; border-radius:9px; box-shadow:0 0 6px #eee; padding:10px; margin-bottom:8px;}
-.fixed-chat .chat-emoji {font-size:20px; cursor:pointer;}
-@media (max-width: 750px) {
-  .fixed-chat {width: 98vw !important; left: 0 !important; right: 0 !important; top: unset !important;}
-}
-</style>
-""", unsafe_allow_html=True)
+st.sidebar.markdown("---")  # separador visual
 
-st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
-st.markdown('<div class="chat-title">💬 Chat Global</div>', unsafe_allow_html=True)
-
-# Mostrar mensagens
-chat_msgs = load_chat()[-40:]
-st.markdown('<div class="chat-box">', unsafe_allow_html=True)
+st.sidebar.markdown("### 💬 Chat Global")
+chat_msgs = load_chat()[-50:]
 for m in chat_msgs:
     u, msg, dt = m['user'], m['msg'], m['dt']
     userstyle = "font-weight:700;color:#3131b0" if u==st.session_state['logged_user'] else "font-weight:500"
-    st.markdown(
-        f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>: {msg}</div>",
+    st.sidebar.markdown(
+        f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:<br>{msg}</div>",
         unsafe_allow_html=True
     )
-st.markdown('</div>', unsafe_allow_html=True)
 
-# Botão para limpar chat e form
-if st.button("🗑️ Limpar Chat Global"):
+if st.sidebar.button("🗑️ Limpar Chat"):
     if os.path.exists(CHAT_FILE):
         os.remove(CHAT_FILE)
-        st.success("Chat limpo!")
+        st.sidebar.success("Chat limpo!")
         st.experimental_rerun()
 
-emoji_bar()
-with st.form(key="chat_form", clear_on_submit=True):
-    msg = st.text_input("Mensagem:", key="chatinput")
+def emoji_bar_sidebar():
+    emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
+    bar = ''.join([f'<span style="font-size:20px;cursor:pointer;" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
+    st.sidebar.markdown(bar, unsafe_allow_html=True)
+
+emoji_bar_sidebar()
+
+with st.sidebar.form(key="chat_form_sidebar", clear_on_submit=True):
+    msg = st.text_input("Mensagem:", key="chatinput_sidebar")
     enviar = st.form_submit_button("Enviar")
     if enviar and msg.strip():
         try:
@@ -689,6 +667,4 @@ with st.form(key="chat_form", clear_on_submit=True):
             save_message(user, msg.strip())
             st.experimental_rerun()
         except Exception as e:
-            st.error(f"Erro ao enviar mensagem: {e}")
-
-st.markdown('</div>', unsafe_allow_html=True)
+            st.sidebar.error(f"Erro ao enviar mensagem: {e}")
