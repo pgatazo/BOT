@@ -681,3 +681,4 @@ with st.container():
             save_message(st.session_state["logged_user"], msg.strip())
             st.experimental_rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
