@@ -80,29 +80,6 @@ else:
     set_online(st.session_state['logged_user'], True)
 
 st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
-st.markdown("""
-    <style>
-    .mainblock {max-width: 980px; margin-left: auto; margin-right: auto;}
-    .fixed-chat {position:fixed; top:0; right:0; width:340px; height:100vh; background:#f7f7fb; border-left:1.5px solid #ddd; z-index:9999; padding:12px 18px 85px 12px; overflow-y:auto;}
-    .fixed-chat .chat-title {font-weight:bold; font-size:21px; margin-bottom:8px;}
-    .fixed-chat .chat-box {height:52vh;overflow-y:auto; background:#fff; border-radius:9px; box-shadow:0 0 6px #eee; padding:10px; margin-bottom:8px;}
-    .fixed-chat .chat-input-row {display:flex; gap:5px;}
-    .fixed-chat .chat-input {flex:1;}
-    .fixed-chat .chat-emoji {font-size:20px; cursor:pointer;}
-    .online-users {margin-bottom:10px; padding:10px; background:#fff; border-radius:8px; box-shadow:0 1px 2px #eee;}
-    .online-dot {height:10px;width:10px;border-radius:50%;display:inline-block;margin-right:6px;}
-    .dot-online {background:#18cc0e;}
-    .dot-offline {background:#bbb;}
-    section[data-testid="stSidebar"] {min-width:340px; width:340px;}
-    .block-container {padding-right:360px !important;}
-    @media (max-width: 750px) {
-      .mainblock {max-width: 98vw !important;}
-      /* Removi a linha .fixed-chat para manter o chat à direita no mobile */
-      .block-container {padding-right:340px !important;}
-      section[data-testid="stSidebar"] {min-width:unset !important; width:98vw !important;}
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 
 
@@ -657,33 +634,33 @@ def emoji_bar():
     """, unsafe_allow_html=True)
 
 # ====== PAINEL FIXO DE CHAT ======
-st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
+st.sidebar.markdown("---")  # separador visual
 
-# ... (usuários online, título, etc.) ...
-
-st.markdown('<hr>', unsafe_allow_html=True)
-st.markdown('<div class="chat-title">💬 Chat Global</div>', unsafe_allow_html=True)
-chat_msgs = load_chat()[-120:]
-st.markdown('<div class="chat-box">', unsafe_allow_html=True)
+st.sidebar.markdown("### 💬 Chat Global")
+chat_msgs = load_chat()[-50:]
 for m in chat_msgs:
     u, msg, dt = m['user'], m['msg'], m['dt']
     userstyle = "font-weight:700;color:#3131b0" if u==st.session_state['logged_user'] else "font-weight:500"
-    st.markdown(
-        f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:</div><div style='margin-left:9px;margin-bottom:5px;font-size:16px'>{msg}</div>",
+    st.sidebar.markdown(
+        f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:<br>{msg}</div>",
         unsafe_allow_html=True
     )
-st.markdown('</div>', unsafe_allow_html=True)
 
-# Botão para limpar chat (acessível a todos)
-if st.button("🗑️ Limpar Chat Global"):
+if st.sidebar.button("🗑️ Limpar Chat"):
     if os.path.exists(CHAT_FILE):
         os.remove(CHAT_FILE)
-        st.success("Chat limpo!")
+        st.sidebar.success("Chat limpo!")
         st.experimental_rerun()
 
-emoji_bar()
-with st.form(key="chat_form", clear_on_submit=True):
-    msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
+def emoji_bar_sidebar():
+    emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
+    bar = ''.join([f'<span style="font-size:20px;cursor:pointer;" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
+    st.sidebar.markdown(bar, unsafe_allow_html=True)
+
+emoji_bar_sidebar()
+
+with st.sidebar.form(key="chat_form_sidebar", clear_on_submit=True):
+    msg = st.text_input("Mensagem:", key="chatinput_sidebar")
     enviar = st.form_submit_button("Enviar")
     if enviar and msg.strip():
         try:
@@ -691,6 +668,4 @@ with st.form(key="chat_form", clear_on_submit=True):
             save_message(user, msg.strip())
             st.experimental_rerun()
         except Exception as e:
-            st.error(f"Erro ao enviar mensagem: {e}")
-
-st.markdown('</div>', unsafe_allow_html=True)
+            st.sidebar.error(f"Erro ao enviar mensagem: {e}")
