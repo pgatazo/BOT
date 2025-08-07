@@ -672,7 +672,7 @@ with st.container():
             st.experimental_rerun()
 
     emoji_bar()
-    with st.form(key="chat_form", clear_on_submit=True):
+   with st.form(key="chat_form", clear_on_submit=True):
     msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
     enviar = st.form_submit_button("Enviar")
     if enviar and msg.strip():
@@ -682,6 +682,7 @@ with st.container():
             st.experimental_rerun()
         except Exception as e:
             st.error(f"Erro ao enviar mensagem: {e}")
+
 
 
 
