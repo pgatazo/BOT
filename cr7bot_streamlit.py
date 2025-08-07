@@ -624,11 +624,10 @@ with tab2:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ====================== PAINEL FIXO DE CHAT E UTILIZADORES À DIREITA ======================
-from streamlit_autorefresh import st_autorefresh
+# ====== AUTOREFRESH DO CHAT ======
+st_autorefresh(interval=5000, key="chatrefresh")
 
-st_autorefresh(interval=5000, key="chatrefresh")  # AUTOREFRESH do chat e users online
-
+# ====== FUNÇÃO PARA EMOJIS ======
 def emoji_bar():
     emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
     bar = ''.join([f'<span class="chat-emoji" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
@@ -645,9 +644,11 @@ def emoji_bar():
     </script>
     """, unsafe_allow_html=True)
 
+# ====== PAINEL FIXO DE CHAT ======
 with st.container():
     st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
-    # UTILIZADORES ONLINE
+
+    # Utilizadores online
     st.markdown('<div class="chat-title">👤 Utilizadores Online</div>', unsafe_allow_html=True)
     users_data = load_users()
     all_online = get_all_online()
@@ -655,7 +656,11 @@ with st.container():
         online = all_online.get(u, {}).get("online", False)
         dt = all_online.get(u, {}).get("dt", "")
         dot = "dot-online" if online else "dot-offline"
-        st.markdown(f"<div class='online-users'><span class='online-dot {dot}'></span> <b>{u}</b> <span style='font-size:13px;color:#bbb'>{'(online)' if online else f'(offline {dt})'}</span></div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div class='online-users'><span class='online-dot {dot}'></span> <b>{u}</b> <span style='font-size:13px;color:#bbb'>{'(online)' if online else f'(offline {dt})'}</span></div>",
+            unsafe_allow_html=True
+        )
+
     st.markdown('<hr>', unsafe_allow_html=True)
     st.markdown('<div class="chat-title">💬 Chat Global</div>', unsafe_allow_html=True)
     chat_msgs = load_chat()[-120:]
@@ -663,7 +668,10 @@ with st.container():
     for m in chat_msgs:
         u, msg, dt = m['user'], m['msg'], m['dt']
         userstyle = "font-weight:700;color:#3131b0" if u==st.session_state['logged_user'] else "font-weight:500"
-        st.markdown(f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:</div><div style='margin-left:9px;margin-bottom:5px;font-size:16px'>{msg}</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:</div><div style='margin-left:9px;margin-bottom:5px;font-size:16px'>{msg}</div>",
+            unsafe_allow_html=True
+        )
     st.markdown('</div>', unsafe_allow_html=True)
     emoji_bar()
     with st.form(key="chat_form", clear_on_submit=True):
@@ -673,4 +681,3 @@ with st.container():
             save_message(st.session_state["logged_user"], msg.strip())
             st.experimental_rerun()
     st.markdown('</div>', unsafe_allow_html=True)
-
