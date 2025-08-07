@@ -673,11 +673,15 @@ with st.container():
 
     emoji_bar()
     with st.form(key="chat_form", clear_on_submit=True):
-        msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
-        enviar = st.form_submit_button("Enviar")
-        if enviar and msg.strip():
-            save_message(st.session_state["logged_user"], msg.strip())
+    msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
+    enviar = st.form_submit_button("Enviar")
+    if enviar and msg.strip():
+        try:
+            user = st.session_state.get("logged_user", "desconhecido")
+            save_message(user, msg.strip())
             st.experimental_rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Erro ao enviar mensagem: {e}")
+
 
 
