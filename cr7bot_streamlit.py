@@ -97,12 +97,13 @@ st.markdown("""
     .block-container {padding-right:360px !important;}
     @media (max-width: 750px) {
       .mainblock {max-width: 98vw !important;}
-      .fixed-chat {width: 98vw !important; left: 0 !important; right: 0 !important; top: unset !important; bottom: 0 !important; height: 32vh !important;}
-      .block-container {padding-right: 0 !important;}
+      /* Removi a linha .fixed-chat para manter o chat à direita no mobile */
+      .block-container {padding-right:340px !important;}
       section[data-testid="stSidebar"] {min-width:unset !important; width:98vw !important;}
     }
     </style>
 """, unsafe_allow_html=True)
+
 
 
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
@@ -648,18 +649,7 @@ def emoji_bar():
 with st.container():
     st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
 
-    # Utilizadores online
-    st.markdown('<div class="chat-title">👤 Utilizadores Online</div>', unsafe_allow_html=True)
-    users_data = load_users()
-    all_online = get_all_online()
-    for u in users_data.keys():
-        online = all_online.get(u, {}).get("online", False)
-        dt = all_online.get(u, {}).get("dt", "")
-        dot = "dot-online" if online else "dot-offline"
-        st.markdown(
-            f"<div class='online-users'><span class='online-dot {dot}'></span> <b>{u}</b> <span style='font-size:13px;color:#bbb'>{'(online)' if online else f'(offline {dt})'}</span></div>",
-            unsafe_allow_html=True
-        )
+    # ... (usuários online, título, etc.)
 
     st.markdown('<hr>', unsafe_allow_html=True)
     st.markdown('<div class="chat-title">💬 Chat Global</div>', unsafe_allow_html=True)
@@ -673,6 +663,14 @@ with st.container():
             unsafe_allow_html=True
         )
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # Botão para limpar chat (acessível a todos)
+    if st.button("🗑️ Limpar Chat Global"):
+        if os.path.exists(CHAT_FILE):
+            os.remove(CHAT_FILE)
+            st.success("Chat limpo!")
+            st.experimental_rerun()
+
     emoji_bar()
     with st.form(key="chat_form", clear_on_submit=True):
         msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
@@ -681,4 +679,5 @@ with st.container():
             save_message(st.session_state["logged_user"], msg.strip())
             st.experimental_rerun()
     st.markdown('</div>', unsafe_allow_html=True)
+
 
