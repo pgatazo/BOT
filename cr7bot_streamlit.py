@@ -647,6 +647,7 @@ def emoji_bar():
 
 # ====== PAINEL FIXO DE CHAT ======
 with st.container():
+    
     st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
 
     # ... (usuários online, título, etc.)
