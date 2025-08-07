@@ -649,7 +649,7 @@ if st.sidebar.button("🗑️ Limpar Chat"):
     if os.path.exists(CHAT_FILE):
         os.remove(CHAT_FILE)
         st.sidebar.success("Chat limpo!")
-        st.experimental_rerun()
+        st.rerun()
 
 def emoji_bar_sidebar():
     emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
@@ -665,6 +665,6 @@ with st.sidebar.form(key="chat_form_sidebar", clear_on_submit=True):
         try:
             user = st.session_state.get("logged_user", "desconhecido")
             save_message(user, msg.strip())
-            st.experimental_rerun()
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"Erro ao enviar mensagem: {e}")
