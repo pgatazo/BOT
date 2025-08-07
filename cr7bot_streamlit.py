@@ -623,9 +623,10 @@ with tab2:
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ====================== PAINEL FIXO DE CHAT À DIREITA ======================
 # ====================== PAINEL FIXO DE CHAT E UTILIZADORES À DIREITA ======================
-st_autorefresh(interval=5000, key="chatrefresh")  # <- AUTOREFRESH DO CHAT E USERS ONLINE
+from streamlit_autorefresh import st_autorefresh
+
+st_autorefresh(interval=5000, key="chatrefresh")  # AUTOREFRESH do chat e users online
 
 def emoji_bar():
     emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
