@@ -647,7 +647,6 @@ def emoji_bar():
 
 # ====== PAINEL FIXO DE CHAT ======
 with st.container():
-    
     st.markdown('<div class="fixed-chat">', unsafe_allow_html=True)
 
     # ... (usuários online, título, etc.)
@@ -673,17 +672,14 @@ with st.container():
             st.experimental_rerun()
 
     emoji_bar()
-   with st.form(key="chat_form", clear_on_submit=True):
-    msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
-    enviar = st.form_submit_button("Enviar")
-    if enviar and msg.strip():
-        try:
-            user = st.session_state.get("logged_user", "desconhecido")
-            save_message(user, msg.strip())
-            st.experimental_rerun()
-        except Exception as e:
-            st.error(f"Erro ao enviar mensagem: {e}")
-
-
-
-
+    with st.form(key="chat_form", clear_on_submit=True):
+        msg = st.text_input("Message to PauloDamas-GPT", key="chatinput")
+        enviar = st.form_submit_button("Enviar")
+        if enviar and msg.strip():
+            try:
+                user = st.session_state.get("logged_user", "desconhecido")
+                save_message(user, msg.strip())
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Erro ao enviar mensagem: {e}")
+    st.markdown('</div>', unsafe_allow_html=True)
