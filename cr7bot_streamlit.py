@@ -7,42 +7,36 @@ import streamlit_authenticator as stauth
 import re
 import streamlit.components.v1 as components
 
-# ================== AUTENTICAÇÃO ===================
-names = ['Paulo Silva', 'João Ribeiro']
-usernames = ['paulo', 'joao']
-passwords = ['1234', 'abcd']  # MUDA estas passwords depois!
-hashed_passwords = stauth.Hasher(passwords).generate()
+import bcrypt
+import streamlit_authenticator as stauth
+
+# --- Utilizadores e palavras-passe (texto plano -> serão hashed em runtime)
+USERS = [
+    {"username": "paulo", "name": "Paulo Silva", "password": "1234"},
+    {"username": "joao",  "name": "João Ribeiro", "password": "abcd"},
+]
+
+# Gera credenciais no formato da API nova
+credentials = {"usernames": {}}
+for u in USERS:
+    # hash seguro; em produção, grava estes hashes e NÃO guardes as passwords em claro
+    pwd_hash = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
+    credentials["usernames"][u["username"]] = {
+        "name": u["name"],
+        "password": pwd_hash,
+    }
+
+# Instancia o autenticador (API ≥ 0.3.x)
 authenticator = stauth.Authenticate(
-    names, usernames, hashed_passwords, 'cr7bot_app', 'abcdef', cookie_expiry_days=30
+    credentials=credentials,
+    cookie_name="cr7bot_app",
+    key="abcdef",
+    cookie_expiry_days=30,
+    preauthorized=[]
 )
-name, authentication_status, username = authenticator.login('Login', 'main')
 
-if authentication_status is False:
-    st.error('Username ou password incorretos!')
-if authentication_status is None:
-    st.warning('Por favor faz login.')
-if authentication_status:
+name, authentication_status, username = authenticator.login("Login", "main")
 
-    authenticator.logout('Logout', 'sidebar')
-    st.sidebar.success(f"Bem-vindo, {name}!")
-
-    # ======= Funções utilitárias =======
-    def kelly_criterion(prob, odd, banca, fracao=1):
-        b = odd - 1
-        q = 1 - prob
-        f = ((b * prob - q) / b) * fracao
-        return max(0, banca * f)
-
-    def calc_ev(p, o): 
-        return round(o * p - 1, 2)
-
-    def to_excel(df):
-        output = BytesIO()
-        writer = pd.ExcelWriter(output, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Resultados')
-        writer.close()
-        processed_data = output.getvalue()
-        return processed_data
 
     # --- Listas para dropdowns
     formacoes_lista = [
@@ -545,3 +539,4 @@ if authentication_status:
         st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
 
 # =========== FIM ===========
+
