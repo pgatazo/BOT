@@ -1,11 +1,12 @@
 import streamlit as st
-st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # tem de ser o 1º st.*
+st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")
 
 import pandas as pd
-from io import BytesIO
-import re
-import streamlit.components.v1 as components
-import streamlit_authenticator as stauth
+from io import BytesIO            # para exportar Excel
+import re                         # parser M3U (regex)
+import streamlit.components.v1 as components  # para embutir o player HLS (HTML/JS)
+import streamlit_authenticator as stauth      # autenticação
+
 
 # ================== AUTENTICAÇÃO (API nova >= 0.3.x, sem bcrypt) ==================
 USERS = [
@@ -547,3 +548,4 @@ else:
 
         st.info("Dica: se o canal não abrir por CORS, usa um proxy próprio ou um URL que permita acesso direto.")
         st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
+
