@@ -1,547 +1,890 @@
 import streamlit as st
-st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # tem de ser o 1º st.*
-
+import hashlib
+import json
+import os
 import pandas as pd
 from io import BytesIO
-import streamlit_authenticator as stauth
-import re
-import streamlit.components.v1 as components
+from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
+import time
 
-# ================== AUTENTICAÇÃO ===================
-names = ['Paulo Silva', 'João Ribeiro']
-usernames = ['paulo', 'joao']
-passwords = ['1234', 'abcd']  # MUDA estas passwords depois!
-hashed_passwords = stauth.Hasher(passwords).generate()
-authenticator = stauth.Authenticate(
-    names, usernames, hashed_passwords, 'cr7bot_app', 'abcdef', cookie_expiry_days=30
+# ======== FICHEIROS ========
+USERS_FILE = "users.json"
+CUSTOM_FILE = "ligas_e_equipas_custom.json"
+PESOS_FILE = "pesos_personalizados.json"
+CHAT_FILE = "chat.json"
+ONLINE_FILE = "online_users.json"
+
+# ======== SAFE JSON WRITE (escrita atómica, evita corrupção) ========
+def safe_json_write(filepath, data, retries=5):
+    for _ in range(retries):
+        try:
+            tmp = filepath + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, filepath)
+            return True
+        except Exception:
+            time.sleep(0.1)
+    return False
+
+# ======== LOGIN =========
+def hash_pwd(pwd):
+    return hashlib.sha256(pwd.encode()).hexdigest()
+
+def load_users():
+    if not os.path.exists(USERS_FILE):
+        base_users = {
+            "paulo": hash_pwd("damas2024"),
+            "admin": hash_pwd("admin123")
+        }
+        safe_json_write(USERS_FILE, base_users)
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
+USERS = load_users()
+
+# Função para gerir presença online dos utilizadores
+def set_online(username, online=True):
+    data = {}
+    if os.path.exists(ONLINE_FILE):
+        with open(ONLINE_FILE, "r") as f:
+            data = json.load(f)
+    data[username] = {"online": online, "dt": datetime.now().strftime('%H:%M')}
+    safe_json_write(ONLINE_FILE, data)
+
+def get_all_online():
+    if os.path.exists(ONLINE_FILE):
+        with open(ONLINE_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+def login_screen():
+    st.title("🔒 Login - PauloDamas-GPT")
+    username = st.text_input("Utilizador")
+    password = st.text_input("Password", type="password")
+    login_btn = st.button("Entrar")
+    if login_btn:
+        if username in USERS and hash_pwd(password) == USERS[username]:
+            st.success(f"Bem-vindo, {username}!")
+            st.session_state.login_success = True
+            st.session_state.logged_user = username
+            set_online(username, True)
+        else:
+            st.error("Credenciais inválidas ou não autorizado!")
+    return st.session_state.get("login_success", False)
+
+if "login_success" not in st.session_state or not st.session_state["login_success"]:
+    if not login_screen():
+        st.stop()
+else:
+    set_online(st.session_state['logged_user'], True)
+
+st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
+
+import streamlit as st
+# ... (restantes imports)
+
+# ====== FUNÇÃO PARA CARREGAR E GUARDAR OS PESOS ======
+def load_pesos():
+    if os.path.exists(PESOS_FILE):
+        with open(PESOS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    # Se não existir, devolve default
+    return {
+        "Formação_C": 0.01, "Formação_F": 0.01,
+        "Motivação_C": 0.01, "Motivação_F": 0.01,
+        "Árbitro_C": 0.01, "Árbitro_F": 0.01,
+        "Pressão_C": 0.01, "Pressão_F": 0.01,
+        "Importância_C": 0.01, "Importância_F": 0.01,
+        "Desgaste_C": 0.01, "Desgaste_F": 0.01,
+        "Viagem_C": 0.01, "Viagem_F": 0.01,
+        "Titulares_C": 0.01, "Titulares_F": 0.01,
+        "Meteo_C": 0.01, "Meteo_F": 0.01,
+        "H2H": 0.01,
+    }
+
+def save_pesos(pesos):
+    with open(PESOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(pesos, f, ensure_ascii=False, indent=2)
+
+# ====== INICIALIZAÇÃO DOS PESOS E STATUS DE ATUALIZAÇÃO ======
+if "pesos" not in st.session_state:
+    st.session_state["pesos"] = load_pesos()
+if "pesos_atualizados" not in st.session_state:
+    st.session_state["pesos_atualizados"] = {}
+
+pesos = st.session_state["pesos"]
+
+
+# ====== PAINEL DE PESOS (SIDE BAR) ======
+st.sidebar.title("📊 Painel de Pesos (ajustável)")
+
+pesos_nomes = [
+    ("Motivação", "Motivação_C", "Motivação_F"),
+    ("Árbitro", "Árbitro_C", "Árbitro_F"),
+    ("Pressão", "Pressão_C", "Pressão_F"),
+    ("Importância", "Importância_C", "Importância_F"),
+    ("Desgaste", "Desgaste_C", "Desgaste_F"),
+    ("Viagem", "Viagem_C", "Viagem_F"),
+    ("Formação", "Formação_C", "Formação_F"),
+    ("Titulares", "Titulares_C", "Titulares_F"),
+    ("Meteo", "Meteo_C", "Meteo_F"),
+    ("H2H", "H2H", None),  # H2H só 1 peso
+]
+
+for nome, key_c, key_f in pesos_nomes:
+    col = st.sidebar.columns(2 if key_f else 1)
+    # Peso CASA
+    with col[0]:
+        val_c = st.sidebar.number_input(
+            f"{nome} CASA",
+            min_value=-0.1,
+            max_value=0.1,
+            value=pesos.get(key_c, 0.01),
+            step=0.001,
+            key=f"{key_c}_sidebar"
+        )
+        # Mostrar sinal de ok se foi atualizado automaticamente
+        ok_str_c = "✅" if st.session_state["pesos_atualizados"].get(key_c, False) else ""
+        st.sidebar.markdown(f"<span style='color:green;font-weight:bold'>{ok_str_c}</span>", unsafe_allow_html=True)
+        # Atualizar no estado se mudou manualmente
+        if val_c != pesos.get(key_c, 0.01):
+            pesos[key_c] = val_c
+            st.session_state["pesos_atualizados"][key_c] = False
+
+    # Peso FORA
+    if key_f:
+        with col[1]:
+            val_f = st.sidebar.number_input(
+                f"{nome} FORA",
+                min_value=-0.1,
+                max_value=0.1,
+                value=pesos.get(key_f, 0.01),
+                step=0.001,
+                key=f"{key_f}_sidebar"
+            )
+            ok_str_f = "✅" if st.session_state["pesos_atualizados"].get(key_f, False) else ""
+            st.sidebar.markdown(f"<span style='color:green;font-weight:bold'>{ok_str_f}</span>", unsafe_allow_html=True)
+            if val_f != pesos.get(key_f, 0.01):
+                pesos[key_f] = val_f
+                st.session_state["pesos_atualizados"][key_f] = False
+
+
+st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
+
+# ======== FUNÇÕES UTILITÁRIAS ========
+def kelly_criterion(prob, odd, banca, fracao=1):
+    b = odd - 1
+    q = 1 - prob
+    f = ((b * prob - q) / b) * fracao
+    return max(0, banca * f)
+
+def calc_ev(p, o): return round(o * p - 1, 2)
+
+def to_excel(df, distrib, resumo, pesos_df):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Análise Principal')
+        distrib.to_excel(writer, index=False, sheet_name='Distribuição Ajustes')
+        resumo.to_excel(writer, index=False, sheet_name='Resumo Inputs')
+        pesos_df.to_excel(writer, index=False, sheet_name='Pesos em Uso')
+    return output.getvalue()
+
+def save_custom(data):
+    safe_json_write(CUSTOM_FILE, data)
+
+def load_custom():
+    if os.path.exists(CUSTOM_FILE):
+        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        return {}
+
+def save_pesos(pesos):
+    safe_json_write(PESOS_FILE, pesos)
+
+def load_pesos():
+    if os.path.exists(PESOS_FILE):
+        with open(PESOS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    else:
+        return {
+            "Motivação_C": 0.01, "Motivação_F": 0.01,
+            "Árbitro_C": 0.00, "Árbitro_F": 0.00,
+            "Pressão_C": 0.02, "Pressão_F": 0.02,
+            "Importância_C": 0.01, "Importância_F": 0.01,
+            "Desgaste_C": 0.01, "Desgaste_F": 0.01,
+            "Viagem_C": 0.01, "Viagem_F": 0.01,
+            "Formação_C": 0.01, "Formação_F": 0.01,
+            "Titulares_C": 0.01, "Titulares_F": 0.01
+        }
+
+def save_message(user, msg, dt=None):
+    chat = load_chat()
+    if dt is None:
+        dt = datetime.now().strftime('%H:%M')
+    chat.append({"user": user, "msg": msg, "dt": dt})
+    safe_json_write(CHAT_FILE, chat)
+
+def load_chat():
+    if os.path.exists(CHAT_FILE):
+        with open(CHAT_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+# ======== LISTAS ========
+formacoes_lista = [
+    "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
+    "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
+    "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
+    "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
+]
+tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
+tipos_troca = [
+    "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
+    "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
+    "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
+]
+posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
+importancias_lista = ["Peça chave", "Importante", "Normal"]
+meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
+
+# ======== PAINEL DE PESOS (ESQUERDA) ========
+if "pesos" not in st.session_state:
+    st.session_state["pesos"] = load_pesos()
+pesos = st.session_state["pesos"]
+
+st.sidebar.title("📊 Painel de Pesos (ajustável)")
+for i, fator in enumerate(["Motivação", "Árbitro", "Pressão", "Importância", "Desgaste", "Viagem", "Formação", "Titulares"]):
+    key_c = f"peso_{fator.lower().replace('ç','c').replace('ã','a').replace('í','i').replace('á','a').replace('ú','u').replace('ó','o').replace('é','e')}_c_{i}"
+    key_f = f"peso_{fator.lower().replace('ç','c').replace('ã','a').replace('í','i').replace('á','a').replace('ú','u').replace('ó','o').replace('é','e')}_f_{i}"
+    pesos[f"{fator}_C"] = st.sidebar.number_input(
+        f"Peso {fator} CASA",
+        min_value=-0.1,
+        max_value=0.1,
+        value=pesos.get(f"{fator}_C", 0.01),
+        step=0.001,
+        key=key_c
+    )
+    pesos[f"{fator}_F"] = st.sidebar.number_input(
+        f"Peso {fator} FORA",
+        min_value=-0.1,
+        max_value=0.1,
+        value=pesos.get(f"{fator}_F", 0.01),
+        step=0.001,
+        key=key_f
+    )
+
+# NOVOS PESOS: Meteorologia e H2H
+pesos["Meteo_C"] = st.sidebar.number_input(
+    "Peso Meteorologia CASA", 
+    min_value=-0.1, max_value=0.1, 
+    value=pesos.get("Meteo_C", 0.00), 
+    step=0.001, 
+    key="peso_meteo_c"
 )
-name, authentication_status, username = authenticator.login('Login', 'main')
+pesos["Meteo_F"] = st.sidebar.number_input(
+    "Peso Meteorologia FORA", 
+    min_value=-0.1, max_value=0.1, 
+    value=pesos.get("Meteo_F", 0.00), 
+    step=0.001, 
+    key="peso_meteo_f"
+)
+pesos["H2H"] = st.sidebar.number_input(
+    "Peso H2H (Confrontos Diretos)", 
+    min_value=-0.1, max_value=0.1, 
+    value=pesos.get("H2H", 0.00), 
+    step=0.001, 
+    key="peso_h2h"
+)
 
-if authentication_status is False:
-    st.error('Username ou password incorretos!')
-if authentication_status is None:
-    st.warning('Por favor faz login.')
-if authentication_status:
-
-    authenticator.logout('Logout', 'sidebar')
-    st.sidebar.success(f"Bem-vindo, {name}!")
-
-    # ======= Funções utilitárias =======
-    def kelly_criterion(prob, odd, banca, fracao=1):
-        b = odd - 1
-        q = 1 - prob
-        f = ((b * prob - q) / b) * fracao
-        return max(0, banca * f)
-
-    def calc_ev(p, o): 
-        return round(o * p - 1, 2)
-
-    def to_excel(df):
-        output = BytesIO()
-        writer = pd.ExcelWriter(output, engine='xlsxwriter')
-        df.to_excel(writer, index=False, sheet_name='Resultados')
-        writer.close()
-        processed_data = output.getvalue()
-        return processed_data
-
-    # --- Listas para dropdowns
-    formacoes_lista = [
-        "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
-        "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
-        "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
-        "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
+# ======== LIGAS E EQUIPAS ========
+custom_data = load_custom()
+ligas_fixas = {
+    "Liga Betclic": [
+        "Benfica", "Porto", "Sporting", "Braga", "Guimarães", "Casa Pia", "Boavista", "Estoril",
+        "Famalicão", "Farense", "Gil Vicente", "Moreirense", "Portimonense", "Rio Ave", "Arouca", "Vizela", "Chaves"
+    ],
+    "Premier League": [
+        "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton", "Burnley", "Chelsea",
+        "Crystal Palace", "Everton", "Fulham", "Liverpool", "Luton Town", "Manchester City",
+        "Manchester United", "Newcastle", "Nottingham Forest", "Sheffield United", "Tottenham",
+        "West Ham", "Wolves"
+    ],
+    "La Liga": [
+        "Real Madrid", "Barcelona", "Atlético Madrid", "Sevilla", "Betis", "Valencia", "Villarreal",
+        "Real Sociedad", "Athletic Bilbao", "Getafe", "Osasuna", "Celta Vigo", "Granada",
+        "Las Palmas", "Mallorca", "Alaves", "Rayo Vallecano", "Almeria", "Girona", "Cadiz"
     ]
-    tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
-    tipos_troca = [
-        "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
-        "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
-        "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
+}
+ligas_custom = custom_data.get("ligas", {})
+todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
+
+# ======== TABS ========
+tab1, tab2 = st.tabs(["⚽ Pré-Jogo", "🔥 Live / 2ª Parte + IA"])
+
+# ========================= BLOCO PRÉ-JOGO =========================
+with tab1:
+    st.markdown('<div class="mainblock">', unsafe_allow_html=True)
+
+    st.header("Análise Pré-Jogo (com fatores avançados)")
+    liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
+    # ... [Restante lógica das equipas igual, não mexe]
+
+    # --------- PESOS: FORMAÇÃO / ABORDAGEM --------------
+    st.subheader("Formações e Estratégias")
+    colf1, colf2 = st.columns(2)
+    with colf1:
+        form_casa = st.selectbox("Formação inicial CASA", formacoes_lista, key="form_casa_pre")
+        tipo_form_casa = st.selectbox("Abordagem (CASA)", tipos_formacao, key="tipo_form_casa_pre")
+        # Marca peso atualizado ao interagir
+        st.session_state["pesos_atualizados"]["Formação_C"] = True
+    with colf2:
+        form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
+        tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
+        st.session_state["pesos_atualizados"]["Formação_F"] = True
+
+    # --------- PESOS: TITULARES --------------
+    st.subheader("Titulares disponíveis")
+    titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
+    titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
+    st.session_state["pesos_atualizados"]["Titulares_C"] = True
+    st.session_state["pesos_atualizados"]["Titulares_F"] = True
+
+    # --------- PESOS: METEOROLOGIA --------------
+    st.subheader("Meteorologia e Condições Especiais")
+    periodo_jogo = st.selectbox("Quando se realiza o jogo?", ["Dia", "Noite"], key="periodo_jogo")
+    meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
+    st.session_state["pesos_atualizados"]["Meteo_C"] = True
+    st.session_state["pesos_atualizados"]["Meteo_F"] = True
+
+    # --------- PESOS: ÁRBITRO / CARTÕES --------------
+    st.subheader("Árbitro e Tendência de Cartões")
+    col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
+    with col_arbitro1:
+        arbitro = st.slider("Nota do Árbitro (0-10)", 0.0, 10.0, 5.0, 0.1, key="arbitro_pre")
+        st.session_state["pesos_atualizados"]["Árbitro_C"] = True
+        st.session_state["pesos_atualizados"]["Árbitro_F"] = True
+    with col_arbitro2:
+        tendencia_cartoes = st.selectbox("Tendência para cartões", ["Poucos", "Normal", "Muitos"], key="tendencia_cartoes")
+    with col_arbitro3:
+        media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
+
+    # --------- PESOS: MOTIVAÇÃO, ETC --------------
+    st.subheader("Motivação e Condições Especiais (CASA e FORA)")
+    col_casa, col_fora = st.columns(2)
+    with col_casa:
+        motivacao_casa = st.selectbox("Motivação da equipa CASA", ["Baixa", "Normal", "Alta", "Máxima"], key="motivacao_casa")
+        importancia_jogo_casa = st.selectbox("Importância do jogo CASA", ["Pouca", "Normal", "Importante", "Decisivo"], key="importancia_jogo_casa")
+        pressao_adeptos_casa = st.selectbox("Pressão dos adeptos CASA", ["Baixa", "Normal", "Alta"], key="pressao_adeptos_casa")
+        desgaste_fisico_casa = st.selectbox("Desgaste físico CASA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_casa")
+        viagem_casa = st.selectbox("Viagem/Calendário CASA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_casa")
+        # Marca todos pesos casa como atualizados
+        st.session_state["pesos_atualizados"]["Motivação_C"] = True
+        st.session_state["pesos_atualizados"]["Importância_C"] = True
+        st.session_state["pesos_atualizados"]["Pressão_C"] = True
+        st.session_state["pesos_atualizados"]["Desgaste_C"] = True
+        st.session_state["pesos_atualizados"]["Viagem_C"] = True
+    with col_fora:
+        motivacao_fora = st.selectbox("Motivação da equipa FORA", ["Baixa", "Normal", "Alta", "Máxima"], key="motivacao_fora")
+        importancia_jogo_fora = st.selectbox("Importância do jogo FORA", ["Pouca", "Normal", "Importante", "Decisivo"], key="importancia_jogo_fora")
+        pressao_adeptos_fora = st.selectbox("Pressão dos adeptos FORA", ["Baixa", "Normal", "Alta"], key="pressao_adeptos_fora")
+        desgaste_fisico_fora = st.selectbox("Desgaste físico FORA", ["Baixo", "Normal", "Elevado"], key="desgaste_fisico_fora")
+        viagem_fora = st.selectbox("Viagem/Calendário FORA", ["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"], key="viagem_fora")
+        # Marca todos pesos fora como atualizados
+        st.session_state["pesos_atualizados"]["Motivação_F"] = True
+        st.session_state["pesos_atualizados"]["Importância_F"] = True
+        st.session_state["pesos_atualizados"]["Pressão_F"] = True
+        st.session_state["pesos_atualizados"]["Desgaste_F"] = True
+        st.session_state["pesos_atualizados"]["Viagem_F"] = True
+
+    # ------ MÉDIAS E H2H -------
+    with st.form("totais_golos_form"):
+        st.subheader("Equipa da CASA")
+        total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
+        total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
+        jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
+        media_marcados_casa = total_golos_casa / jogos_casa if jogos_casa else 0
+        media_sofridos_casa = total_sofridos_casa / jogos_casa if jogos_casa else 0
+        st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
+
+        st.subheader("Equipa de FORA")
+        total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
+        total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
+        jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
+        media_marcados_fora = total_golos_fora / jogos_fora if jogos_fora else 0
+        media_sofridos_fora = total_sofridos_fora / jogos_fora if jogos_fora else 0
+        st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
+
+        st.subheader("Confrontos Diretos (H2H)")
+        total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
+        total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
+        jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
+        media_h2h_casa = total_golos_h2h_casa / jogos_h2h if jogos_h2h else 0
+        media_h2h_fora = total_golos_h2h_fora / jogos_h2h if jogos_h2h else 0
+        st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
+        confirm1 = st.form_submit_button("✅ Confirmar Totais")
+    if confirm1:
+        st.session_state['medias'] = {
+            'marc_casa': media_marcados_casa,
+            'sofr_casa': media_sofridos_casa,
+            'marc_fora': media_marcados_fora,
+            'sofr_fora': media_sofridos_fora,
+            'marc_h2h_casa': media_h2h_casa,
+            'marc_h2h_fora': media_h2h_fora,
+        }
+        st.success("Totais confirmados!")
+        st.session_state["pesos_atualizados"]["H2H"] = True  # Marca H2H como atualizado
+
+    # ... resto do cálculo e outputs
+    
+    # ... resto do cálculo e outputs
+    
+if st.button("Gerar Análise e Odds Justa"):
+    def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
+        idx_c = lista.index(v_casa)
+        idx_f = lista.index(v_fora)
+        diff = idx_c - idx_f
+        return 1 + diff * peso_c, 1 - diff * peso_f
+
+    # AJUSTES DOS FATORES (usar sempre os pesos do st.session_state["pesos"])
+    pesos = st.session_state["pesos"]
+
+    form_aj_casa, form_aj_fora = fator_delta(
+        form_casa, form_fora, formacoes_lista,
+        pesos["Formação_C"], pesos["Formação_F"]
+    )
+    tipo_aj_casa, tipo_aj_fora = fator_delta(
+        tipo_form_casa, tipo_form_fora, tipos_formacao,
+        pesos["Formação_C"], pesos["Formação_F"]
+    )
+    tit_aj_casa = 1 + (titulares_casa - 11) * pesos["Titulares_C"]
+    tit_aj_fora = 1 + (titulares_fora - 11) * pesos["Titulares_F"]
+    motiv_aj_casa = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_casa)-1) * pesos["Motivação_C"]
+    motiv_aj_fora = 1 + (["Baixa", "Normal", "Alta", "Máxima"].index(motivacao_fora)-1) * pesos["Motivação_F"]
+    arb_aj_casa = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_C"]
+    arb_aj_fora = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_F"]
+    press_aj_casa = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_casa)) * pesos["Pressão_C"]
+    press_aj_fora = 1 + (["Baixa", "Normal", "Alta"].index(pressao_adeptos_fora)) * pesos["Pressão_F"]
+    imp_aj_casa = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_casa)) * pesos["Importância_C"]
+    imp_aj_fora = 1 + (["Pouca", "Normal", "Importante", "Decisivo"].index(importancia_jogo_fora)) * pesos["Importância_F"]
+    des_aj_casa = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_casa)) * pesos["Desgaste_C"]
+    des_aj_fora = 1 - (["Baixo", "Normal", "Elevado"].index(desgaste_fisico_fora)) * pesos["Desgaste_F"]
+    viag_aj_casa = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
+    viag_aj_fora = 1 - (["Descanso", "Viagem curta", "Viagem longa", "Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
+
+    # METEOROLOGIA
+    meteo_idx = meteos_lista.index(meteo)
+    meteo_aj_casa = 1 + meteo_idx * pesos["Meteo_C"]
+    meteo_aj_fora = 1 + meteo_idx * pesos["Meteo_F"]
+
+    # H2H
+    diff_h2h = media_h2h_casa - media_h2h_fora
+    h2h_ajuste = 1 + diff_h2h * pesos["H2H"]
+
+    ajuste_total_casa = (
+        form_aj_casa * tipo_aj_casa * tit_aj_casa * motiv_aj_casa *
+        arb_aj_casa * press_aj_casa * imp_aj_casa * des_aj_casa *
+        viag_aj_casa * meteo_aj_casa * h2h_ajuste
+    )
+    ajuste_total_fora = (
+        form_aj_fora * tipo_aj_fora * tit_aj_fora * motiv_aj_fora *
+        arb_aj_fora * press_aj_fora * imp_aj_fora * des_aj_fora *
+        viag_aj_fora * meteo_aj_fora
+    )
+
+    prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7) if (media_marcados_casa + media_marcados_fora + 1e-7) else 0
+    prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7) if (media_marcados_casa + media_marcados_fora + 1e-7) else 0
+    prob_empate = 1 - (prob_casa + prob_fora)
+    prob_casa_aj = prob_casa * ajuste_total_casa
+    prob_fora_aj = prob_fora * ajuste_total_fora
+    prob_empate_aj = max(1 - (prob_casa_aj + prob_fora_aj), 0.01)
+    total_prob_aj = prob_casa_aj + prob_empate_aj + prob_fora_aj
+    prob_casa_aj, prob_empate_aj, prob_fora_aj = [p/total_prob_aj for p in [prob_casa_aj, prob_empate_aj, prob_fora_aj]]
+
+    odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
+    odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
+    odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
+    ev_casa = calc_ev(prob_casa_aj, odd_casa)
+    ev_empate = calc_ev(prob_empate_aj, odd_empate)
+    ev_fora = calc_ev(prob_fora_aj, odd_fora)
+    stake_casa = kelly_criterion(prob_casa_aj, odd_casa, banca)
+    stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
+    stake_fora = kelly_criterion(prob_fora_aj, odd_fora, banca)
+
+    df_res = pd.DataFrame({
+        "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
+        "Odd": [odd_casa, odd_empate, odd_fora],
+        "Odd Justa": [round(odd_justa_casa,2), round(odd_justa_empate,2), round(odd_justa_fora,2)],
+        "Prob. (%)": [round(prob_casa_aj*100,1), round(prob_empate_aj*100,1), round(prob_fora_aj*100,1)],
+        "EV": [ev_casa, ev_empate, ev_fora],
+        "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
+        "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
+    })
+
+    # Soma dos pesos usados
+    soma_pesos_casa = sum([pesos[k] for k in pesos if "_C" in k])
+    soma_pesos_fora = sum([pesos[k] for k in pesos if "_F" in k])
+    st.info(f"Soma dos pesos CASA: **{soma_pesos_casa:.4f}** | Soma dos pesos FORA: **{soma_pesos_fora:.4f}**")
+    st.info(f"Diff Odd Calculada - Odd da Casa: CASA {round(odd_casa - odd_justa_casa,2)} | EMPATE {round(odd_empate-odd_justa_empate,2)} | FORA {round(odd_fora-odd_justa_fora,2)}")
+
+    dist_ajustes = [
+        ["Formação", form_aj_casa, form_aj_fora],
+        ["Abordagem", tipo_aj_casa, tipo_aj_fora],
+        ["Titulares", tit_aj_casa, tit_aj_fora],
+        ["Motivação", motiv_aj_casa, motiv_aj_fora],
+        ["Árbitro", arb_aj_casa, arb_aj_fora],
+        ["Pressão", press_aj_casa, press_aj_fora],
+        ["Importância", imp_aj_casa, imp_aj_fora],
+        ["Desgaste", des_aj_casa, des_aj_fora],
+        ["Viagem", viag_aj_casa, viag_aj_fora],
+        ["Meteorologia", meteo_aj_casa, meteo_aj_fora],
+        ["H2H (Confrontos Diretos)", h2h_ajuste, "-"],
+        ["AJUSTE TOTAL", ajuste_total_casa, ajuste_total_fora],
+        ["Probabilidade ajustada", prob_casa_aj, prob_fora_aj]
     ]
-    posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
-    importancias_lista = ["Peça chave", "Importante", "Normal"]
-    meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
+    distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
-    # ========= INTELIGÊNCIA TÁTICA / SUGESTÃO DE FORMAÇÃO =========
-    def sugestao_formacao(eventos):
-        if not eventos:
-            return ""
-        ultimo = eventos[-1]
-        if ultimo["tipo"] == "Substituição":
-            if ultimo.get("tipo_troca") in ["Avançado por Médio", "Avançado por Defesa"]:
-                return "⚠️ Sugerido: equipa pode alterar para sistema mais defensivo (ex: 4-5-1, 5-4-1, 4-2-3-1)."
-            if ultimo.get("tipo_troca") in ["Defesa por Avançado", "Médio por Avançado"]:
-                return "⚡ Sugerido: treinador procura mais ataque (ex: 4-3-3 atacante, 4-2-4, 3-4-3)."
-        return ""
+    resumo_dict = {
+        "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
+        "Formação CASA": [form_casa], "Formação FORA": [form_fora],
+        "Abordagem CASA": [tipo_form_casa], "Abordagem FORA": [tipo_form_fora],
+        "Titulares CASA": [titulares_casa], "Titulares FORA": [titulares_fora],
+        "Período do Jogo": [periodo_jogo], "Meteo": [meteo],
+        "Nota Árbitro": [arbitro], "Tendência Cartões": [tendencia_cartoes], "Média Cartões": [media_cartoes],
+        "Motivação CASA": [motivacao_casa], "Importância Jogo CASA": [importancia_jogo_casa], "Pressão Adeptos CASA": [pressao_adeptos_casa],
+        "Desgaste CASA": [desgaste_fisico_casa], "Viagem CASA": [viagem_casa],
+        "Motivação FORA": [motivacao_fora], "Importância Jogo FORA": [importancia_jogo_fora], "Pressão Adeptos FORA": [pressao_adeptos_fora],
+        "Desgaste FORA": [desgaste_fisico_fora], "Viagem FORA": [viagem_fora],
+        "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
+        "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
+        "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
+        "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora]
+    }
+    resumo_df = pd.DataFrame(resumo_dict)
+    pesos_df = pd.DataFrame([pesos])
 
-    def interpretar_tatica(eventos, live_base, resultado_actual):
-        comentario = ""
-        ultimo = eventos[-1] if eventos else {}
-        equipa = ultimo.get("equipa", "")
-        if not eventos:
-            return "Sem eventos recentes. O treinador mantém o plano inicial."
-        if ultimo["tipo"] == "Substituição":
-            tipo_troca = ultimo.get("tipo_troca", "")
-            if tipo_troca in ["Avançado por Médio", "Avançado por Defesa"]:
-                comentario = f"O treinador ({equipa}) abdica de ataque por meio-campo/defesa. Pode estar a proteger vantagem ou fechar jogo."
-            elif tipo_troca in ["Defesa por Avançado", "Médio por Avançado"]:
-                comentario = f"O treinador ({equipa}) lança mais ataque, quer marcar ou virar o resultado."
-            elif tipo_troca == "Médio por Médio":
-                comentario = f"O treinador ({equipa}) mantém equilíbrio no meio-campo."
-            else:
-                comentario = f"Substituição sem alteração táctica evidente ({tipo_troca})."
-        elif ultimo["tipo"] == "Mudança de formação":
-            nova_form = ultimo.get("nova_formacao", "")
-            tipo_nova = ultimo.get("tipo_formacao", "")
-            if tipo_nova == "Atacante":
-                comentario = f"O treinador ({equipa}) muda para formação ofensiva ({nova_form}). Procura marcar."
-            elif tipo_nova == "Defensivo":
-                comentario = f"O treinador ({equipa}) muda para formação defensiva ({nova_form}). Procura segurar resultado."
-            else:
-                comentario = f"Mudança de formação para ({nova_form}), mantendo equilíbrio."
-        elif ultimo["tipo"] == "Expulsão":
-            pos = ultimo.get("posicao", "Desconhecida")
-            imp = ultimo.get("importancia", "Normal")
-            comentario = f"Expulsão ({imp}) na posição {pos} ({equipa}). Vai obrigar a ajustar bloco."
-        elif ultimo["tipo"] == "Amarelo":
-            pos = ultimo.get("posicao", "Desconhecida")
-            imp = ultimo.get("importancia", "Normal")
-            comentario = f"Cartão amarelo para {pos} ({equipa}) — jogador condicionado."
-        elif ultimo["tipo"] == "Penalty":
-            comentario = f"Penalty para {equipa}! Expectável reação tática dependendo do resultado."
-        elif ultimo["tipo"] == "Golo":
-            comentario = f"Golo para {equipa}! Expectável ajuste do adversário."
+    st.subheader("Resultados da Análise")
+    st.dataframe(df_res)
+    st.subheader("Distribuição dos Ajustes & Pesos (Casa / Fora)")
+    st.dataframe(distrib_df)
+    st.subheader("📊 Pesos em uso")
+    st.dataframe(pesos_df.T, use_container_width=True)
+    relatorio = to_excel(df_res, distrib_df, resumo_df, pesos_df)
+    st.download_button("⬇️ Download Relatório Completo (Excel)", data=relatorio, file_name="analise_prejogo_completa.xlsx")
+    st.success("Análise pronta! Consulta apostas recomendadas, detalhes dos ajustes e exporta tudo para Excel.")
+    st.markdown('</div>', unsafe_allow_html=True)  # <-- ATENÇÃO: aqui deve estar INDENTADO com os outputs acima
+
+with tab2:
+    st.markdown('<div class="mainblock">', unsafe_allow_html=True)
+    st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + IA)")
+
+    col_livef1, col_livef2 = st.columns(2)
+    with col_livef1:
+        form_casa_live = st.selectbox("Formação CASA (Live)", formacoes_lista, key="form_casa_live")
+        tipo_form_casa_live = st.selectbox("Abordagem CASA", tipos_formacao, key="tipo_form_casa_live")
+    with col_livef2:
+        form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
+        tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
+
+    with st.form("form_live_base"):
+        resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
+        xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xg_fora = st.number_input("xG equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xgot_casa = st.number_input("xGOT equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xgot_fora = st.number_input("xGOT equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        remates_baliza_casa = st.number_input("Remates à baliza (CASA)", min_value=0, value=0)
+        remates_baliza_fora = st.number_input("Remates à baliza (FORA)", min_value=0, value=0)
+        grandes_ocasioes_casa = st.number_input("Grandes oportunidades (CASA)", min_value=0, value=0)
+        grandes_ocasioes_fora = st.number_input("Grandes oportunidades (FORA)", min_value=0, value=0)
+        remates_ferro_casa = st.number_input("Remates ao ferro (CASA)", min_value=0, value=0)
+        remates_ferro_fora = st.number_input("Remates ao ferro (FORA)", min_value=0, value=0)
+        amarelos_casa = st.number_input("Cartões amarelos (CASA)", min_value=0, value=0)
+        amarelos_fora = st.number_input("Cartões amarelos (FORA)", min_value=0, value=0)
+        vermelhos_casa = st.number_input("Cartões vermelhos (CASA)", min_value=0, value=0)
+        vermelhos_fora = st.number_input("Cartões vermelhos (FORA)", min_value=0, value=0)
+        rating_casa = st.number_input("Rating global da equipa da CASA (0-10)", min_value=0.0, max_value=10.0, value=7.0, step=0.01)
+        rating_fora = st.number_input("Rating global da equipa de FORA (0-10)", min_value=0.0, max_value=10.0, value=6.9, step=0.01)
+        confirmar_base = st.form_submit_button("✅ Confirmar Dados 1ª Parte")
+    if confirmar_base:
+        st.session_state['live_base'] = {
+            "xg_casa": xg_casa, "xg_fora": xg_fora,
+            "xgot_casa": xgot_casa, "xgot_fora": xgot_fora,
+            "remates_baliza_casa": remates_baliza_casa, "remates_baliza_fora": remates_baliza_fora,
+            "grandes_ocasioes_casa": grandes_ocasioes_casa, "grandes_ocasioes_fora": grandes_ocasioes_fora,
+            "remates_ferro_casa": remates_ferro_casa, "remates_ferro_fora": remates_ferro_fora,
+            "amarelos_casa": amarelos_casa, "amarelos_fora": amarelos_fora,
+            "vermelhos_casa": vermelhos_casa, "vermelhos_fora": vermelhos_fora,
+            "rating_casa": rating_casa, "rating_fora": rating_fora,
+            "form_casa": form_casa_live, "form_fora": form_fora_live,
+            "tipo_form_casa": tipo_form_casa_live, "tipo_form_fora": tipo_form_fora_live
+        }
+        st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
+
+    if "eventos_live" not in st.session_state:
+        st.session_state["eventos_live"] = []
+
+    st.subheader("➕ Adicionar Evento LIVE")
+    tipo_evento = st.selectbox("Tipo de evento", ["Golo", "Expulsão", "Penalty", "Substituição", "Mudança de formação", "Amarelo"])
+    equipa_evento = st.selectbox("Equipa", ["Casa", "Fora"])
+    detalhes_evento = st.text_input("Detalhes (opcional)", key="detalhes_ev")
+    posicao_ev, tipo_troca_ev, nova_form_ev, tipo_form_ev, imp_ev = None, None, None, None, None
+    if tipo_evento in ["Expulsão", "Amarelo"]:
+        posicao_ev = st.selectbox("Posição do jogador", posicoes_lista, key="pos_ev")
+        imp_ev = st.selectbox("Importância do jogador", importancias_lista, key="imp_ev")
+    if tipo_evento == "Substituição":
+        tipo_troca_ev = st.selectbox("Tipo de substituição", tipos_troca, key="troca_ev")
+    if tipo_evento == "Mudança de formação":
+        nova_form_ev = st.selectbox("Nova formação", formacoes_lista, key="nova_form_ev")
+        tipo_form_ev = st.selectbox("Nova abordagem", tipos_formacao, key="tipo_form_ev")
+
+    if st.button("Adicionar evento LIVE"):
+        evento = {
+            "tipo": tipo_evento,
+            "equipa": equipa_evento,
+            "detalhes": detalhes_evento
+        }
+        if posicao_ev: evento["posicao"] = posicao_ev
+        if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
+        if nova_form_ev: evento["nova_formacao"] = nova_form_ev
+        if tipo_form_ev: evento["tipo_formacao"] = tipo_form_ev
+        if imp_ev: evento["importancia"] = imp_ev
+        st.session_state["eventos_live"].append(evento)
+        st.success("Evento adicionado! Atualiza previsão em baixo.")
+
+    st.markdown("#### Eventos registados:")
+    if st.session_state["eventos_live"]:
+        for i, ev in enumerate(st.session_state["eventos_live"], 1):
+            info_ev = f"{i}. {ev['tipo']} | {ev['equipa']}"
+            if "posicao" in ev: info_ev += f" | {ev['posicao']}"
+            if "tipo_troca" in ev: info_ev += f" | {ev['tipo_troca']}"
+            if "nova_formacao" in ev: info_ev += f" | Nova: {ev['nova_formacao']} ({ev.get('tipo_formacao','')})"
+            if "importancia" in ev: info_ev += f" | {ev['importancia']}"
+            if ev['detalhes']: info_ev += f" | {ev['detalhes']}"
+            st.write(info_ev)
+    else:
+        st.write("Nenhum evento registado ainda.")
+
+    def interpretar_tatica(eventos, live_base, resultado):
+        return "Comentário de exemplo. Adapta com a tua lógica de IA ou heurística."
+
+    def calc_xg_live(live_base, eventos):
+        base_xg = (live_base.get("xg_casa", 0) + live_base.get("xg_fora", 0))/2
+        ajuste = len(eventos) * 0.07
+        return base_xg + ajuste, ajuste, base_xg
+
+    st.markdown("### 🤖 **PauloDamas-GPT** — Interpretação Tática Live")
+    resultado_actual = 0
+    comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
+    st.info(comentario)
+
+    if st.button("🔁 Atualizar Previsão com Eventos Live"):
+        if 'live_base' not in st.session_state:
+            st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
         else:
-            comentario = "Sem alteração táctica identificada."
-        comentario += "\n" + sugestao_formacao(eventos)
-        return "🤖 Treinador ChatGPT: " + comentario
-
-    # ======= Cálculo de xG Live =======
-    def calc_xg_live(dados, eventos):
-        xg_total_1p = dados["xg_casa"] + dados["xg_fora"]
-        xgot_total_1p = dados["xgot_casa"] + dados["xgot_fora"]
-        xg_ponderado = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
-        remates_baliza_total = dados["remates_baliza_casa"] + dados["remates_baliza_fora"]
-        grandes_ocasioes_total = dados["grandes_ocasioes_casa"] + dados["grandes_ocasioes_fora"]
-        remates_ferro_total = dados["remates_ferro_casa"] + dados["remates_ferro_fora"]
-        ajuste = 1.0
-        diff_rating = dados["rating_casa"] - dados["rating_fora"]
-        ajuste += diff_rating * 0.10
-        if grandes_ocasioes_total >= 3: ajuste += 0.10
-        if remates_baliza_total >= 6: ajuste += 0.05
-        if xg_ponderado >= 1.0: ajuste += 0.10
-        if remates_ferro_total: ajuste += remates_ferro_total * 0.07
-        if dados["amarelos_casa"] >= 3: ajuste -= 0.05
-        if dados["amarelos_fora"] >= 3: ajuste -= 0.05
-        if dados["vermelhos_casa"]: ajuste -= 0.20 * dados["vermelhos_casa"]
-        if dados["vermelhos_fora"]: ajuste += 0.20 * dados["vermelhos_fora"]
-        for ev in eventos:
-            tipo = ev["tipo"]
-            eq = ev["equipa"]
-            if tipo == "Golo":
-                ajuste += 0.2 if eq == "Casa" else -0.2
-            elif tipo == "Expulsão":
-                ajuste -= 0.15 if eq == "Casa" else 0.15
-            elif tipo == "Penalty":
-                ajuste += 0.25 if eq == "Casa" else -0.25
-            elif tipo == "Substituição":
-                peso = 0
-                if ev.get("tipo_troca") == "Avançado por Médio":
-                    peso = -0.08
-                elif ev.get("tipo_troca") == "Avançado por Defesa":
-                    peso = -0.12
-                elif ev.get("tipo_troca") == "Médio por Avançado":
-                    peso = +0.07
-                elif ev.get("tipo_troca") == "Defesa por Avançado":
-                    peso = +0.10
-                elif ev.get("tipo_troca") == "Médio por Médio":
-                    peso = 0
-                ajuste += peso if eq == "Casa" else -peso
-            elif tipo == "Mudança de formação":
-                impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
-                ajuste += impacto if eq == "Casa" else -impacto
-            elif tipo == "Amarelo":
-                pos = ev.get("posicao", "Desconhecida")
-                if pos == "Defesa":
-                    ajuste -= 0.05 if eq == "Casa" else -0.05
-                elif pos == "Médio":
-                    ajuste -= 0.03 if eq == "Casa" else -0.03
-                elif pos == "Avançado":
-                    ajuste -= 0.01 if eq == "Casa" else -0.01
-        xg_2p = xg_ponderado * ajuste
-        return xg_2p, ajuste, xg_ponderado
-
-    # ======= Parser M3U =======
-    def parse_m3u(m3u_text: str):
-        """
-        Devolve lista de canais: [{"name":..., "url":..., "logo":..., "group":...}]
-        Suporta #EXTM3U / #EXTINF.
-        """
-        channels = []
-        current = {}
-        for line in m3u_text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#EXTM3U"):
-                continue
-            if line.startswith("#EXTINF"):
-                name_match = line.split(",", 1)
-                name = name_match[1].strip() if len(name_match) > 1 else "Sem nome"
-                logo = ""
-                group = ""
-                m_logo = re.search(r'tvg-logo="([^"]*)"', line)
-                m_group = re.search(r'group-title="([^"]*)"', line)
-                if m_logo: logo = m_logo.group(1)
-                if m_group: group = m_group.group(1)
-                current = {"name": name, "logo": logo, "group": group}
-            elif not line.startswith("#") and current:
-                current["url"] = line
-                channels.append(current)
-                current = {}
-        return channels
-
-    # ================== INÍCIO APP (conteúdo autenticado) ===================
-    st.title("⚽️ CR7 BOT — Treinador ChatGPT (Pré-Jogo + Live + Inteligência)")
-    tab1, tab2, tab3 = st.tabs([
-        "⚽ Pré-Jogo",
-        "🔥 Live / 2ª Parte + Treinador ChatGPT",
-        "📺 Player IPTV"
-    ])
-
-    # ========= TAB PRÉ-JOGO =========
-    with tab1:
-        st.header("Análise Pré-Jogo")
-
-        # ----- 1. Formação inicial e abordagem -----
-        st.subheader("Formações e Estratégias")
-        colf1, colf2 = st.columns(2)
-        with colf1:
-            form_casa = st.selectbox("Formação inicial CASA", formacoes_lista, key="form_casa_pre")
-            tipo_form_casa = st.selectbox("Abordagem (CASA)", tipos_formacao, key="tipo_form_casa_pre")
-        with colf2:
-            form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
-            tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
-
-        # ----- 2. Titulares -----
-        st.subheader("Titulares disponíveis")
-        titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
-        ausentes_casa = []
-        if titulares_casa < 11:
-            n_ausentes_casa = 11 - titulares_casa
-            st.warning(f"⚠️ Atenção: {n_ausentes_casa} titular(es) ausente(s) na CASA!")
-            for i in range(n_ausentes_casa):
-                st.markdown(f"**Ausente #{i+1} (CASA):**")
-                pos = st.selectbox(f"Posição", posicoes_lista, key=f"pos_casa_{i}")
-                imp = st.selectbox("Importância", importancias_lista, key=f"imp_casa_{i}")
-                ausentes_casa.append({"posição": pos, "importancia": imp})
-        titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
-        ausentes_fora = []
-        if titulares_fora < 11:
-            n_ausentes_fora = 11 - titulares_fora
-            st.warning(f"⚠️ Atenção: {n_ausentes_fora} titular(es) ausente(s) na FORA!")
-            for i in range(n_ausentes_fora):
-                st.markdown(f"**Ausente #{i+1} (FORA):**")
-                pos = st.selectbox(f"Posição", posicoes_lista, key=f"pos_fora_{i}")
-                imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
-                ausentes_fora.append({"posição": pos, "importancia": imp})
-
-        # ----- 3. Meteorologia, Árbitro, Motivação -----
-        st.subheader("Condições Especiais")
-        meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
-        arbitro_nota = st.slider("Nota do Árbitro (0=caseiro, 10=deixa jogar)", 0.0, 10.0, 5.0, step=0.1, key="arbitro_pre")
-        motivacao = st.selectbox("Motivação principal do jogo", ["Normal", "Alta (decisão)", "Baixa"], key="motivacao_pre")
-
-        # ----- 4. Totais de Golos & Jogos (médias automáticas) -----
-        with st.form("totais_golos_form"):
-            st.subheader("Equipa da CASA")
-            total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
-            total_sofridos_casa = st.number_input("Total de golos sofridos (CASA)", min_value=0, value=0, key="sofridos_casa")
-            jogos_casa = st.number_input("Nº de jogos (CASA)", min_value=1, value=5, key="jogos_casa")
-            media_marcados_casa = total_golos_casa / jogos_casa
-            media_sofridos_casa = total_sofridos_casa / jogos_casa
-            st.info(f"Média marcados: **{media_marcados_casa:.2f}** | Média sofridos: **{media_sofridos_casa:.2f}**")
-
-            st.subheader("Equipa de FORA")
-            total_golos_fora = st.number_input("Total de golos marcados (FORA)", min_value=0, value=0, key="golos_fora")
-            total_sofridos_fora = st.number_input("Total de golos sofridos (FORA)", min_value=0, value=0, key="sofridos_fora")
-            jogos_fora = st.number_input("Nº de jogos (FORA)", min_value=1, value=5, key="jogos_fora")
-            media_marcados_fora = total_golos_fora / jogos_fora
-            media_sofridos_fora = total_sofridos_fora / jogos_fora
-            st.info(f"Média marcados: **{media_marcados_fora:.2f}** | Média sofridos: **{media_sofridos_fora:.2f}**")
-
-            st.subheader("Confrontos Diretos (H2H)")
-            total_golos_h2h_casa = st.number_input("Total golos marcados H2H (CASA)", min_value=0, value=0, key="golos_h2h_casa")
-            total_golos_h2h_fora = st.number_input("Total golos marcados H2H (FORA)", min_value=0, value=0, key="golos_h2h_fora")
-            jogos_h2h = st.number_input("Nº de jogos (H2H)", min_value=1, value=5, key="jogos_h2h")
-            media_h2h_casa = total_golos_h2h_casa / jogos_h2h
-            media_h2h_fora = total_golos_h2h_fora / jogos_h2h
-            st.info(f"Média H2H CASA: **{media_h2h_casa:.2f}** | Média H2H FORA: **{media_h2h_fora:.2f}**")
-
-            confirm1 = st.form_submit_button("✅ Confirmar Totais")
-        if confirm1:
-            st.session_state['medias'] = {
-                'marc_casa': media_marcados_casa,
-                'sofr_casa': media_sofridos_casa,
-                'marc_fora': media_marcados_fora,
-                'sofr_fora': media_sofridos_fora,
-                'marc_h2h_casa': media_h2h_casa,
-                'marc_h2h_fora': media_h2h_fora,
-            }
-            st.success("Totais confirmados!")
-
-        # --- 5. ODDS DE MERCADO e NORMALIZAÇÃO ---
-        st.subheader("Odds de Mercado (Casa de Apostas)")
-        colod1, colod2, colod3 = st.columns(3)
-        with colod1:
-            odd_casa = st.number_input("Odd CASA", min_value=1.01, value=1.80, key="odd_casa")
-        with colod2:
-            odd_empate = st.number_input("Odd EMPATE", min_value=1.01, value=3.40, key="odd_empate")
-        with colod3:
-            odd_fora = st.number_input("Odd FORA", min_value=1.01, value=4.20, key="odd_fora")
-        odd_btts_sim = st.number_input("Odd Ambas Marcam SIM", min_value=1.01, value=1.90, key="odd_btts_sim")
-        odd_btts_nao = st.number_input("Odd Ambas Marcam NÃO", min_value=1.01, value=1.80, key="odd_btts_nao")
-        soma_1x2 = odd_casa + odd_empate + odd_fora
-        soma_btts = odd_btts_sim + odd_btts_nao
-        st.info(f"Soma odds 1X2: **{soma_1x2:.2f}** (máximo normal: 8.55) | Soma BTTS: **{soma_btts:.2f}**")
-
-        # --- EXPORTAÇÃO DADOS ---
-        if st.button("Exportar para Excel (Pré-Jogo)"):
-            dados = {
-                "Odd": ["Casa", "Empate", "Fora", "BTTS Sim", "BTTS Não"],
-                "Valor": [odd_casa, odd_empate, odd_fora, odd_btts_sim, odd_btts_nao]
-            }
-            df = pd.DataFrame(dados)
-            st.download_button(
-                label="📥 Download Excel",
-                data=to_excel(df),
-                file_name="odds_pre_jogo.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-
-    # ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
-    with tab2:
-        st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + Treinador ChatGPT)")
-
-        # --- Formação inicial live + abordagem ---
-        st.subheader("Formações e Estratégias (início da 2ª parte)")
-        col_livef1, col_livef2 = st.columns(2)
-        with col_livef1:
-            form_casa_live = st.selectbox("Formação CASA (Live)", formacoes_lista, key="form_casa_live")
-            tipo_form_casa_live = st.selectbox("Abordagem CASA", tipos_formacao, key="tipo_form_casa_live")
-        with col_livef2:
-            form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
-            tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
-
-        # --- Estatísticas da 1ª Parte
-        with st.form("form_live_base"):
-            resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
-            xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
-            xg_fora = st.number_input("xG equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
-            xgot_casa = st.number_input("xGOT equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
-            xgot_fora = st.number_input("xGOT equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
-            remates_baliza_casa = st.number_input("Remates à baliza (CASA)", min_value=0, value=0)
-            remates_baliza_fora = st.number_input("Remates à baliza (FORA)", min_value=0, value=0)
-            grandes_ocasioes_casa = st.number_input("Grandes oportunidades (CASA)", min_value=0, value=0)
-            grandes_ocasioes_fora = st.number_input("Grandes oportunidades (FORA)", min_value=0, value=0)
-            remates_ferro_casa = st.number_input("Remates ao ferro (CASA)", min_value=0, value=0)
-            remates_ferro_fora = st.number_input("Remates ao ferro (FORA)", min_value=0, value=0)
-            amarelos_casa = st.number_input("Cartões amarelos (CASA)", min_value=0, value=0)
-            amarelos_fora = st.number_input("Cartões amarelos (FORA)", min_value=0, value=0)
-            vermelhos_casa = st.number_input("Cartões vermelhos (CASA)", min_value=0, value=0)
-            vermelhos_fora = st.number_input("Cartões vermelhos (FORA)", min_value=0, value=0)
-            rating_casa = st.number_input("Rating global da equipa da CASA (0-10)", min_value=0.0, max_value=10.0, value=7.0, step=0.01)
-            rating_fora = st.number_input("Rating global da equipa de FORA (0-10)", min_value=0.0, max_value=10.0, value=6.9, step=0.01)
-            confirmar_base = st.form_submit_button("✅ Confirmar Dados 1ª Parte")
-        if confirmar_base:
-            st.session_state['live_base'] = {
-                "xg_casa": xg_casa, "xg_fora": xg_fora,
-                "xgot_casa": xgot_casa, "xgot_fora": xgot_fora,
-                "remates_baliza_casa": remates_baliza_casa, "remates_baliza_fora": remates_baliza_fora,
-                "grandes_ocasioes_casa": grandes_ocasioes_casa, "grandes_ocasioes_fora": grandes_ocasioes_fora,
-                "remates_ferro_casa": remates_ferro_casa, "remates_ferro_fora": remates_ferro_fora,
-                "amarelos_casa": amarelos_casa, "amarelos_fora": amarelos_fora,
-                "vermelhos_casa": vermelhos_casa, "vermelhos_fora": vermelhos_fora,
-                "rating_casa": rating_casa, "rating_fora": rating_fora,
-                "form_casa": form_casa_live, "form_fora": form_fora_live,
-                "tipo_form_casa": tipo_form_casa_live, "tipo_form_fora": tipo_form_fora_live
-            }
-            st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
-
-        # --- ESCUTA DE EVENTOS LIVE ---
-        if "eventos_live" not in st.session_state:
-            st.session_state["eventos_live"] = []
-
-        st.subheader("➕ Adicionar Evento LIVE")
-        tipo_evento = st.selectbox("Tipo de evento", ["Golo", "Expulsão", "Penalty", "Substituição", "Mudança de formação", "Amarelo"])
-        equipa_evento = st.selectbox("Equipa", ["Casa", "Fora"])
-        detalhes_evento = st.text_input("Detalhes (opcional)", key="detalhes_ev")
-
-        posicao_ev, tipo_troca_ev, nova_form_ev, tipo_form_ev, imp_ev = None, None, None, None, None
-        if tipo_evento in ["Expulsão", "Amarelo"]:
-            posicao_ev = st.selectbox("Posição do jogador", posicoes_lista, key="pos_ev")
-            imp_ev = st.selectbox("Importância do jogador", importancias_lista, key="imp_ev")
-        if tipo_evento == "Substituição":
-            tipo_troca_ev = st.selectbox("Tipo de substituição", tipos_troca, key="troca_ev")
-        if tipo_evento == "Mudança de formação":
-            nova_form_ev = st.selectbox("Nova formação", formacoes_lista, key="nova_form_ev")
-            tipo_form_ev = st.selectbox("Nova abordagem", tipos_formacao, key="tipo_form_ev")
-
-        if st.button("Adicionar evento LIVE"):
-            evento = {
-                "tipo": tipo_evento,
-                "equipa": equipa_evento,
-                "detalhes": detalhes_evento
-            }
-            if posicao_ev: evento["posicao"] = posicao_ev
-            if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
-            if nova_form_ev: evento["nova_formacao"] = nova_form_ev
-            if tipo_form_ev: evento["tipo_formacao"] = tipo_form_ev
-            if imp_ev: evento["importancia"] = imp_ev
-            st.session_state["eventos_live"].append(evento)
-            st.success("Evento adicionado! Atualiza previsão em baixo.")
-
-        st.markdown("#### Eventos registados:")
-        if st.session_state["eventos_live"]:
-            for i, ev in enumerate(st.session_state["eventos_live"], 1):
-                info_ev = f"{i}. {ev['tipo']} | {ev['equipa']}"
-                if "posicao" in ev: info_ev += f" | {ev['posicao']}"
-                if "tipo_troca" in ev: info_ev += f" | {ev['tipo_troca']}"
-                if "nova_formacao" in ev: info_ev += f" | Nova: {ev['nova_formacao']} ({ev.get('tipo_formacao','')})"
-                if "importancia" in ev: info_ev += f" | {ev['importancia']}"
-                if ev['detalhes']: info_ev += f" | {ev['detalhes']}"
-                st.write(info_ev)
-        else:
-            st.write("Nenhum evento registado ainda.")
-
-        # ---- PAINEL DE INTELIGÊNCIA: Treinador ChatGPT ----
-        st.markdown("### 🤖 **Treinador ChatGPT** — Interpretação Tática Live")
-        resultado_actual = 0
-        comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
-        st.info(comentario)
-
-        if st.button("🔁 Atualizar Previsão com Eventos Live"):
-            if 'live_base' not in st.session_state:
-                st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
+            xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state["eventos_live"])
+            st.markdown(f"### 🟢 **Golos Esperados para a 2ª parte:** `{xg_2p:.2f}`")
+            if xg_2p >= 1.6:
+                st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
+            elif xg_2p >= 1.2:
+                st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
             else:
-                xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state["eventos_live"])
-                st.markdown(f"### 🟢 **Golos Esperados para a 2ª parte:** `{xg_2p:.2f}`")
-                if xg_2p >= 1.6:
-                    st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
-                elif xg_2p >= 1.2:
-                    st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
-                else:
-                    st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
+                st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
 
-                st.info(f"""
-                **Resumo do Ajuste:**  
-                xG ponderado: {xg_ponderado:.2f}  
-                Ajuste total (rating/eventos): {ajuste:.2f}
-                Eventos registados: {len(st.session_state["eventos_live"])}
-                """)
+            st.info(f"""
+            **Resumo do Ajuste:**  
+            xG ponderado: {xg_ponderado:.2f}  
+            Ajuste total (rating/eventos): {ajuste:.2f}
+            Eventos registados: {len(st.session_state["eventos_live"])}
+            """)
 
-        if st.button("🗑️ Limpar eventos LIVE"):
-            st.session_state["eventos_live"] = []
-            st.success("Lista de eventos live limpa!")
+    if st.button("🗑️ Limpar eventos LIVE"):
+        st.session_state["eventos_live"] = []
+        st.success("Lista de eventos live limpa!")
 
-        # EXPORTAÇÃO LIVE (eventos + base)
-        if st.button("Exportar para Excel (Live)"):
-            base = st.session_state.get('live_base', {})
-            df_base = pd.DataFrame([base])
-            df_eventos = pd.DataFrame(st.session_state["eventos_live"])
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_base.to_excel(writer, sheet_name='Base', index=False)
-                df_eventos.to_excel(writer, sheet_name='Eventos', index=False)
-            st.download_button(
-                label="📥 Download Excel (Live)",
-                data=output.getvalue(),
-                file_name="live_analysis.xlsx",
-                mime="application/vnd.ms-excel"
-            )
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    # ========= TAB PLAYER IPTV =========
-    with tab3:
-        st.header("📺 Player IPTV (M3U/M3U8)")
-        st.caption("Suporta streams HLS (.m3u8). Para outras extensões, o browser tenta abrir direto.")
+with tab2:
+    st.markdown('<div class="mainblock">', unsafe_allow_html=True)
+    st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + IA)")
 
-        origem = st.radio("Como queres carregar a playlist?", ["Ficheiro .m3u", "URL da playlist", "URL direto da stream"], horizontal=True)
+    col_livef1, col_livef2 = st.columns(2)
+    with col_livef1:
+        form_casa_live = st.selectbox("Formação CASA (Live)", formacoes_lista, key="form_casa_live")
+        tipo_form_casa_live = st.selectbox("Abordagem CASA", tipos_formacao, key="tipo_form_casa_live")
+    with col_livef2:
+        form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
+        tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
 
-        canais = []
-        selected_url = None
+    with st.form("form_live_base"):
+        resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
+        xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xg_fora = st.number_input("xG equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xgot_casa = st.number_input("xGOT equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        xgot_fora = st.number_input("xGOT equipa de FORA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
+        remates_baliza_casa = st.number_input("Remates à baliza (CASA)", min_value=0, value=0)
+        remates_baliza_fora = st.number_input("Remates à baliza (FORA)", min_value=0, value=0)
+        grandes_ocasioes_casa = st.number_input("Grandes oportunidades (CASA)", min_value=0, value=0)
+        grandes_ocasioes_fora = st.number_input("Grandes oportunidades (FORA)", min_value=0, value=0)
+        remates_ferro_casa = st.number_input("Remates ao ferro (CASA)", min_value=0, value=0)
+        remates_ferro_fora = st.number_input("Remates ao ferro (FORA)", min_value=0, value=0)
+        amarelos_casa = st.number_input("Cartões amarelos (CASA)", min_value=0, value=0)
+        amarelos_fora = st.number_input("Cartões amarelos (FORA)", min_value=0, value=0)
+        vermelhos_casa = st.number_input("Cartões vermelhos (CASA)", min_value=0, value=0)
+        vermelhos_fora = st.number_input("Cartões vermelhos (FORA)", min_value=0, value=0)
+        rating_casa = st.number_input("Rating global da equipa da CASA (0-10)", min_value=0.0, max_value=10.0, value=7.0, step=0.01)
+        rating_fora = st.number_input("Rating global da equipa de FORA (0-10)", min_value=0.0, max_value=10.0, value=6.9, step=0.01)
+        confirmar_base = st.form_submit_button("✅ Confirmar Dados 1ª Parte")
+    if confirmar_base:
+        st.session_state['live_base'] = {
+            "xg_casa": xg_casa, "xg_fora": xg_fora,
+            "xgot_casa": xgot_casa, "xgot_fora": xgot_fora,
+            "remates_baliza_casa": remates_baliza_casa, "remates_baliza_fora": remates_baliza_fora,
+            "grandes_ocasioes_casa": grandes_ocasioes_casa, "grandes_ocasioes_fora": grandes_ocasioes_fora,
+            "remates_ferro_casa": remates_ferro_casa, "remates_ferro_fora": remates_ferro_fora,
+            "amarelos_casa": amarelos_casa, "amarelos_fora": amarelos_fora,
+            "vermelhos_casa": vermelhos_casa, "vermelhos_fora": vermelhos_fora,
+            "rating_casa": rating_casa, "rating_fora": rating_fora,
+            "form_casa": form_casa_live, "form_fora": form_fora_live,
+            "tipo_form_casa": tipo_form_casa_live, "tipo_form_fora": tipo_form_fora_live
+        }
+        st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
 
-        if origem == "Ficheiro .m3u":
-            up = st.file_uploader("Carrega o ficheiro .m3u", type=["m3u", "m3u8"])
-            if up is not None:
-                txt = up.read().decode("utf-8", errors="ignore")
-                canais = parse_m3u(txt)
-        elif origem == "URL da playlist":
-            m3u_url = st.text_input("URL da playlist .m3u/.m3u8")
-            if m3u_url:
-                if st.button("Tentar carregar playlist (pode falhar por CORS)"):
-                    st.warning("Se não carregar por CORS, cola manualmente abaixo:")
-            playlist_raw = st.text_area("Ou cola aqui o conteúdo M3U")
-            if playlist_raw:
-                canais = parse_m3u(playlist_raw)
-        else:  # URL direto
-            selected_url = st.text_input("URL direto da stream (.m3u8, .mp4, etc.)")
+    if "eventos_live" not in st.session_state:
+        st.session_state["eventos_live"] = []
 
-        if canais:
-            nomes = [f"{c.get('group','') + ' | ' if c.get('group') else ''}{c['name']}" for c in canais]
-            idx = st.selectbox("Escolhe o canal", list(range(len(nomes))), format_func=lambda i: nomes[i])
-            canal = canais[idx]
-            selected_url = canal["url"]
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                if canal.get("logo"):
-                    st.image(canal["logo"])
-            with col1:
-                st.write(f"**Canal:** {canal['name']}  {'(' + canal.get('group','') + ')' if canal.get('group') else ''}")
-                st.code(selected_url, language="text")
+    st.subheader("➕ Adicionar Evento LIVE")
+    tipo_evento = st.selectbox("Tipo de evento", ["Golo", "Expulsão", "Penalty", "Substituição", "Mudança de formação", "Amarelo"])
+    equipa_evento = st.selectbox("Equipa", ["Casa", "Fora"])
+    detalhes_evento = st.text_input("Detalhes (opcional)", key="detalhes_ev")
+    posicao_ev, tipo_troca_ev, nova_form_ev, tipo_form_ev, imp_ev = None, None, None, None, None
+    if tipo_evento in ["Expulsão", "Amarelo"]:
+        posicao_ev = st.selectbox("Posição do jogador", posicoes_lista, key="pos_ev")
+        imp_ev = st.selectbox("Importância do jogador", importancias_lista, key="imp_ev")
+    if tipo_evento == "Substituição":
+        tipo_troca_ev = st.selectbox("Tipo de substituição", tipos_troca, key="troca_ev")
+    if tipo_evento == "Mudança de formação":
+        nova_form_ev = st.selectbox("Nova formação", formacoes_lista, key="nova_form_ev")
+        tipo_form_ev = st.selectbox("Nova abordagem", tipos_formacao, key="tipo_form_ev")
 
-        if selected_url:
-            player_html = f"""
-            <div style="width:100%;max-width:980px;margin:0 auto;">
-              <video id="video" controls playsinline style="width:100%;height:auto;background:#000;" poster="">
-                Seu navegador não suporta vídeo.
-              </video>
-              <div style="margin-top:8px;font:14px Arial, sans-serif;">
-                <span>URL:</span> <code style="word-break:break-all">{selected_url}</code>
-              </div>
-            </div>
-            <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-            <script>
-            (function() {{
-              var url = {selected_url!r};
-              var video = document.getElementById('video');
-              function playDirect(src) {{
-                video.src = src;
-                video.play().catch(()=>{{}});
-              }}
-              if (url.endsWith('.m3u8')) {{
-                if (window.Hls && window.Hls.isSupported()) {{
-                  var hls = new Hls({{lowLatencyMode:true}});
-                  hls.loadSource(url);
-                  hls.attachMedia(video);
-                  hls.on(Hls.Events.MANIFEST_PARSED, function() {{ video.play().catch(()=>{{}}); }});
-                  hls.on(Hls.Events.ERROR, function(e, data) {{
-                    if (data && data.fatal) {{
-                      console.warn('HLS fatal error, trying native:', data);
-                      hls.destroy();
-                      playDirect(url);
-                    }}
-                  }});
-                }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                  playDirect(url);
-                }} else {{
-                  playDirect(url);
-                }}
-              }} else {{
-                playDirect(url);
-              }}
-            }})();
-            </script>
-            """
-            components.html(player_html, height=520, scrolling=False)
+    if st.button("Adicionar evento LIVE"):
+        evento = {
+            "tipo": tipo_evento,
+            "equipa": equipa_evento,
+            "detalhes": detalhes_evento
+        }
+        if posicao_ev: evento["posicao"] = posicao_ev
+        if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
+        if nova_form_ev: evento["nova_formacao"] = nova_form_ev
+        if tipo_form_ev: evento["tipo_formacao"] = tipo_form_ev
+        if imp_ev: evento["importancia"] = imp_ev
+        st.session_state["eventos_live"].append(evento)
+        st.success("Evento adicionado! Atualiza previsão em baixo.")
 
-        st.info("Dica: se o canal não abrir por CORS, usa um proxy próprio ou um URL que permita acesso direto.")
-        st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
+    st.markdown("#### Eventos registados:")
+    if st.session_state["eventos_live"]:
+        for i, ev in enumerate(st.session_state["eventos_live"], 1):
+            info_ev = f"{i}. {ev['tipo']} | {ev['equipa']}"
+            if "posicao" in ev: info_ev += f" | {ev['posicao']}"
+            if "tipo_troca" in ev: info_ev += f" | {ev['tipo_troca']}"
+            if "nova_formacao" in ev: info_ev += f" | Nova: {ev['nova_formacao']} ({ev.get('tipo_formacao','')})"
+            if "importancia" in ev: info_ev += f" | {ev['importancia']}"
+            if ev['detalhes']: info_ev += f" | {ev['detalhes']}"
+            st.write(info_ev)
+    else:
+        st.write("Nenhum evento registado ainda.")
 
-# =========== FIM ===========
+    def interpretar_tatica(eventos, live_base, resultado):
+        return "Comentário de exemplo. Adapta com a tua lógica de IA ou heurística."
+
+    def calc_xg_live(live_base, eventos):
+        base_xg = (live_base.get("xg_casa", 0) + live_base.get("xg_fora", 0))/2
+        ajuste = len(eventos) * 0.07
+        return base_xg + ajuste, ajuste, base_xg
+
+    st.markdown("### 🤖 **PauloDamas-GPT** — Interpretação Tática Live")
+    resultado_actual = 0
+    comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
+    st.info(comentario)
+
+    if st.button("🔁 Atualizar Previsão com Eventos Live"):
+        if 'live_base' not in st.session_state:
+            st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
+        else:
+            xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state["eventos_live"])
+            st.markdown(f"### 🟢 **Golos Esperados para a 2ª parte:** `{xg_2p:.2f}`")
+            if xg_2p >= 1.6:
+                st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
+            elif xg_2p >= 1.2:
+                st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
+            else:
+                st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
+
+            st.info(f"""
+            **Resumo do Ajuste:**  
+            xG ponderado: {xg_ponderado:.2f}  
+            Ajuste total (rating/eventos): {ajuste:.2f}
+            Eventos registados: {len(st.session_state["eventos_live"])}
+            """)
+
+    if st.button("🗑️ Limpar eventos LIVE"):
+        st.session_state["eventos_live"] = []
+        st.success("Lista de eventos live limpa!")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# ====== AUTOREFRESH DO CHAT ======
+st_autorefresh(interval=5000, key="chatrefresh")
+
+# ====== FUNÇÃO PARA EMOJIS ======
+def emoji_bar():
+    emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
+    bar = ''.join([f'<span class="chat-emoji" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
+    st.markdown(f"""
+    <div style='margin-bottom:5px;'>{bar}</div>
+    <script>
+    function addEmoji(e) {{
+        var chat_input = window.parent.document.querySelector('textarea[aria-label="Message to PauloDamas-GPT"]');
+        if (chat_input) {{
+            chat_input.value += e;
+            chat_input.focus();
+        }}
+    }}
+    </script>
+    """, unsafe_allow_html=True)
+
+st.sidebar.markdown("---")  # separador visual
+
+st.sidebar.markdown("### 💬 Chat Global")
+chat_msgs = load_chat()[-50:]
+for m in chat_msgs:
+    u, msg, dt = m['user'], m['msg'], m['dt']
+    userstyle = "font-weight:700;color:#3131b0" if u==st.session_state['logged_user'] else "font-weight:500"
+    st.sidebar.markdown(
+        f"<div style='{userstyle}'>{u} <span style='font-size:13px;color:#bbb'>{dt}</span>:<br>{msg}</div>",
+        unsafe_allow_html=True
+    )
+
+if st.sidebar.button("🗑️ Limpar Chat"):
+    if os.path.exists(CHAT_FILE):
+        os.remove(CHAT_FILE)
+        st.sidebar.success("Chat limpo!")
+        st.rerun()
+
+def emoji_bar_sidebar():
+    emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
+    bar = ''.join([f'<span style="font-size:20px;cursor:pointer;" onclick="addEmoji(\'{e}\')">{e}</span>' for e in emojis])
+    st.sidebar.markdown(bar, unsafe_allow_html=True)
+
+emoji_bar_sidebar()
+
+with st.sidebar.form(key="chat_form_sidebar", clear_on_submit=True):
+    msg = st.text_input("Mensagem:", key="chatinput_sidebar")
+    enviar = st.form_submit_button("Enviar")
+    if enviar and msg.strip():
+        try:
+            user = st.session_state.get("logged_user", "desconhecido")
+            save_message(user, msg.strip())
+            st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"Erro ao enviar mensagem: {e}")
