@@ -5,23 +5,23 @@ import pandas as pd
 from io import BytesIO
 import re
 import streamlit.components.v1 as components
-
-import bcrypt
 import streamlit_authenticator as stauth
 
-# ================== AUTENTICAÇÃO (API nova >= 0.3.x) ==================
+# ================== AUTENTICAÇÃO (API nova >= 0.3.x, sem bcrypt) ==================
 USERS = [
     {"username": "paulo", "name": "Paulo Silva", "password": "1234"},
     {"username": "joao",  "name": "João Ribeiro", "password": "abcd"},
 ]
 
-# Gera credenciais (em produção, guarda apenas os HASHES e nunca a password em claro)
+# Gera hashes com o Hasher da lib (evita dependência do bcrypt)
+passwords_plain = [u["password"] for u in USERS]
+hashed_list = stauth.Hasher(passwords_plain).generate()
+
 credentials = {"usernames": {}}
-for u in USERS:
-    pwd_hash = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
+for u, hashed in zip(USERS, hashed_list):
     credentials["usernames"][u["username"]] = {
         "name": u["name"],
-        "password": pwd_hash,
+        "password": hashed,
     }
 
 authenticator = stauth.Authenticate(
@@ -34,7 +34,7 @@ authenticator = stauth.Authenticate(
 
 name, authentication_status, username = authenticator.login("Login", "main")
 
-# ================== LISTAS / FUNÇÕES (nível zero, sem indentação extra) ==================
+# ================== LISTAS / FUNÇÕES (nível zero) ==================
 # --- Listas para dropdowns
 formacoes_lista = [
     "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
