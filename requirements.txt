@@ -4,5 +4,6 @@ opencv-python
 Pillow
 xlsxwriter
 streamlit-autorefresh
-streamlit-authenticator
+streamlit-authenticator==0.2.2
+
 
