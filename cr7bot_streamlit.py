@@ -1,31 +1,29 @@
 import streamlit as st
-st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # tem de ser o 1º st.*
+st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # 1º st.*
 
 import pandas as pd
 from io import BytesIO
 import re
 import streamlit.components.v1 as components
-
 import bcrypt
 import streamlit_authenticator as stauth
 
-# --- Utilizadores e palavras-passe (texto plano -> serão hashed em runtime)
+# --- Utilizadores e palavras-passe ---
 USERS = [
     {"username": "paulo", "name": "Paulo Silva", "password": "1234"},
     {"username": "joao",  "name": "João Ribeiro", "password": "abcd"},
 ]
 
-# Gera credenciais no formato da API nova
+# Gera credenciais
 credentials = {"usernames": {}}
 for u in USERS:
-    # hash seguro; em produção, grava estes hashes e NÃO guardes as passwords em claro
     pwd_hash = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
     credentials["usernames"][u["username"]] = {
         "name": u["name"],
         "password": pwd_hash,
     }
 
-# Instancia o autenticador (API ≥ 0.3.x)
+# Autenticador
 authenticator = stauth.Authenticate(
     credentials=credentials,
     cookie_name="cr7bot_app",
@@ -35,6 +33,7 @@ authenticator = stauth.Authenticate(
 )
 
 name, authentication_status, username = authenticator.login("Login", "main")
+
 
 # --- Listas para dropdowns (SEM indentação extra)
 formacoes_lista = [
@@ -538,5 +537,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
         st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
 
 # =========== FIM ===========
+
 
 
