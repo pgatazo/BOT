@@ -1,20 +1,21 @@
 import streamlit as st
-st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # 1º st.*
+st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")  # tem de ser o 1º st.*
 
 import pandas as pd
 from io import BytesIO
 import re
 import streamlit.components.v1 as components
+
 import bcrypt
 import streamlit_authenticator as stauth
 
-# --- Utilizadores e palavras-passe ---
+# ================== AUTENTICAÇÃO (API nova >= 0.3.x) ==================
 USERS = [
     {"username": "paulo", "name": "Paulo Silva", "password": "1234"},
     {"username": "joao",  "name": "João Ribeiro", "password": "abcd"},
 ]
 
-# Gera credenciais
+# Gera credenciais (em produção, guarda apenas os HASHES e nunca a password em claro)
 credentials = {"usernames": {}}
 for u in USERS:
     pwd_hash = bcrypt.hashpw(u["password"].encode(), bcrypt.gensalt()).decode()
@@ -23,7 +24,6 @@ for u in USERS:
         "password": pwd_hash,
     }
 
-# Autenticador
 authenticator = stauth.Authenticate(
     credentials=credentials,
     cookie_name="cr7bot_app",
@@ -34,8 +34,8 @@ authenticator = stauth.Authenticate(
 
 name, authentication_status, username = authenticator.login("Login", "main")
 
-
-# --- Listas para dropdowns (SEM indentação extra)
+# ================== LISTAS / FUNÇÕES (nível zero, sem indentação extra) ==================
+# --- Listas para dropdowns
 formacoes_lista = [
     "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
     "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
@@ -52,145 +52,167 @@ posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
 meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
+# --- Utilitárias
+def kelly_criterion(prob, odd, banca, fracao=1):
+    b = odd - 1
+    q = 1 - prob
+    f = ((b * prob - q) / b) * fracao
+    return max(0, banca * f)
 
-    # ========= INTELIGÊNCIA TÁTICA / SUGESTÃO DE FORMAÇÃO =========
-    def sugestao_formacao(eventos):
-        if not eventos:
-            return ""
-        ultimo = eventos[-1]
-        if ultimo["tipo"] == "Substituição":
-            if ultimo.get("tipo_troca") in ["Avançado por Médio", "Avançado por Defesa"]:
-                return "⚠️ Sugerido: equipa pode alterar para sistema mais defensivo (ex: 4-5-1, 5-4-1, 4-2-3-1)."
-            if ultimo.get("tipo_troca") in ["Defesa por Avançado", "Médio por Avançado"]:
-                return "⚡ Sugerido: treinador procura mais ataque (ex: 4-3-3 atacante, 4-2-4, 3-4-3)."
+def calc_ev(p, o):
+    return round(o * p - 1, 2)
+
+def to_excel(df: pd.DataFrame) -> bytes:
+    output = BytesIO()
+    writer = pd.ExcelWriter(output, engine='xlsxwriter')
+    df.to_excel(writer, index=False, sheet_name='Resultados')
+    writer.close()
+    return output.getvalue()
+
+# --- Inteligência tática
+def sugestao_formacao(eventos):
+    if not eventos:
         return ""
+    ultimo = eventos[-1]
+    if ultimo["tipo"] == "Substituição":
+        if ultimo.get("tipo_troca") in ["Avançado por Médio", "Avançado por Defesa"]:
+            return "⚠️ Sugerido: equipa pode alterar para sistema mais defensivo (ex: 4-5-1, 5-4-1, 4-2-3-1)."
+        if ultimo.get("tipo_troca") in ["Defesa por Avançado", "Médio por Avançado"]:
+            return "⚡ Sugerido: treinador procura mais ataque (ex: 4-3-3 atacante, 4-2-4, 3-4-3)."
+    return ""
 
-    def interpretar_tatica(eventos, live_base, resultado_actual):
-        comentario = ""
-        ultimo = eventos[-1] if eventos else {}
-        equipa = ultimo.get("equipa", "")
-        if not eventos:
-            return "Sem eventos recentes. O treinador mantém o plano inicial."
-        if ultimo["tipo"] == "Substituição":
-            tipo_troca = ultimo.get("tipo_troca", "")
-            if tipo_troca in ["Avançado por Médio", "Avançado por Defesa"]:
-                comentario = f"O treinador ({equipa}) abdica de ataque por meio-campo/defesa. Pode estar a proteger vantagem ou fechar jogo."
-            elif tipo_troca in ["Defesa por Avançado", "Médio por Avançado"]:
-                comentario = f"O treinador ({equipa}) lança mais ataque, quer marcar ou virar o resultado."
-            elif tipo_troca == "Médio por Médio":
-                comentario = f"O treinador ({equipa}) mantém equilíbrio no meio-campo."
-            else:
-                comentario = f"Substituição sem alteração táctica evidente ({tipo_troca})."
-        elif ultimo["tipo"] == "Mudança de formação":
-            nova_form = ultimo.get("nova_formacao", "")
-            tipo_nova = ultimo.get("tipo_formacao", "")
-            if tipo_nova == "Atacante":
-                comentario = f"O treinador ({equipa}) muda para formação ofensiva ({nova_form}). Procura marcar."
-            elif tipo_nova == "Defensivo":
-                comentario = f"O treinador ({equipa}) muda para formação defensiva ({nova_form}). Procura segurar resultado."
-            else:
-                comentario = f"Mudança de formação para ({nova_form}), mantendo equilíbrio."
-        elif ultimo["tipo"] == "Expulsão":
-            pos = ultimo.get("posicao", "Desconhecida")
-            imp = ultimo.get("importancia", "Normal")
-            comentario = f"Expulsão ({imp}) na posição {pos} ({equipa}). Vai obrigar a ajustar bloco."
-        elif ultimo["tipo"] == "Amarelo":
-            pos = ultimo.get("posicao", "Desconhecida")
-            imp = ultimo.get("importancia", "Normal")
-            comentario = f"Cartão amarelo para {pos} ({equipa}) — jogador condicionado."
-        elif ultimo["tipo"] == "Penalty":
-            comentario = f"Penalty para {equipa}! Expectável reação tática dependendo do resultado."
-        elif ultimo["tipo"] == "Golo":
-            comentario = f"Golo para {equipa}! Expectável ajuste do adversário."
+def interpretar_tatica(eventos, live_base, resultado_actual):
+    comentario = ""
+    ultimo = eventos[-1] if eventos else {}
+    equipa = ultimo.get("equipa", "")
+    if not eventos:
+        return "Sem eventos recentes. O treinador mantém o plano inicial."
+    if ultimo["tipo"] == "Substituição":
+        tipo_troca = ultimo.get("tipo_troca", "")
+        if tipo_troca in ["Avançado por Médio", "Avançado por Defesa"]:
+            comentario = f"O treinador ({equipa}) abdica de ataque por meio-campo/defesa. Pode estar a proteger vantagem ou fechar jogo."
+        elif tipo_troca in ["Defesa por Avançado", "Médio por Avançado"]:
+            comentario = f"O treinador ({equipa}) lança mais ataque, quer marcar ou virar o resultado."
+        elif tipo_troca == "Médio por Médio":
+            comentario = f"O treinador ({equipa}) mantém equilíbrio no meio-campo."
         else:
-            comentario = "Sem alteração táctica identificada."
-        comentario += "\n" + sugestao_formacao(eventos)
-        return "🤖 Treinador ChatGPT: " + comentario
+            comentario = f"Substituição sem alteração táctica evidente ({tipo_troca})."
+    elif ultimo["tipo"] == "Mudança de formação":
+        nova_form = ultimo.get("nova_formacao", "")
+        tipo_nova = ultimo.get("tipo_formacao", "")
+        if tipo_nova == "Atacante":
+            comentario = f"O treinador ({equipa}) muda para formação ofensiva ({nova_form}). Procura marcar."
+        elif tipo_nova == "Defensivo":
+            comentario = f"O treinador ({equipa}) muda para formação defensiva ({nova_form}). Procura segurar resultado."
+        else:
+            comentario = f"Mudança de formação para ({nova_form}), mantendo equilíbrio."
+    elif ultimo["tipo"] == "Expulsão":
+        pos = ultimo.get("posicao", "Desconhecida")
+        imp = ultimo.get("importancia", "Normal")
+        comentario = f"Expulsão ({imp}) na posição {pos} ({equipa}). Vai obrigar a ajustar bloco."
+    elif ultimo["tipo"] == "Amarelo":
+        pos = ultimo.get("posicao", "Desconhecida")
+        imp = ultimo.get("importancia", "Normal")
+        comentario = f"Cartão amarelo para {pos} ({equipa}) — jogador condicionado."
+    elif ultimo["tipo"] == "Penalty":
+        comentario = f"Penalty para {equipa}! Expectável reação tática dependendo do resultado."
+    elif ultimo["tipo"] == "Golo":
+        comentario = f"Golo para {equipa}! Expectável ajuste do adversário."
+    else:
+        comentario = "Sem alteração táctica identificada."
+    comentario += "\n" + sugestao_formacao(eventos)
+    return "🤖 Treinador ChatGPT: " + comentario
 
-    # ======= Cálculo de xG Live =======
-    def calc_xg_live(dados, eventos):
-        xg_total_1p = dados["xg_casa"] + dados["xg_fora"]
-        xgot_total_1p = dados["xgot_casa"] + dados["xgot_fora"]
-        xg_ponderado = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
-        remates_baliza_total = dados["remates_baliza_casa"] + dados["remates_baliza_fora"]
-        grandes_ocasioes_total = dados["grandes_ocasioes_casa"] + dados["grandes_ocasioes_fora"]
-        remates_ferro_total = dados["remates_ferro_casa"] + dados["remates_ferro_fora"]
-        ajuste = 1.0
-        diff_rating = dados["rating_casa"] - dados["rating_fora"]
-        ajuste += diff_rating * 0.10
-        if grandes_ocasioes_total >= 3: ajuste += 0.10
-        if remates_baliza_total >= 6: ajuste += 0.05
-        if xg_ponderado >= 1.0: ajuste += 0.10
-        if remates_ferro_total: ajuste += remates_ferro_total * 0.07
-        if dados["amarelos_casa"] >= 3: ajuste -= 0.05
-        if dados["amarelos_fora"] >= 3: ajuste -= 0.05
-        if dados["vermelhos_casa"]: ajuste -= 0.20 * dados["vermelhos_casa"]
-        if dados["vermelhos_fora"]: ajuste += 0.20 * dados["vermelhos_fora"]
-        for ev in eventos:
-            tipo = ev["tipo"]
-            eq = ev["equipa"]
-            if tipo == "Golo":
-                ajuste += 0.2 if eq == "Casa" else -0.2
-            elif tipo == "Expulsão":
-                ajuste -= 0.15 if eq == "Casa" else 0.15
-            elif tipo == "Penalty":
-                ajuste += 0.25 if eq == "Casa" else -0.25
-            elif tipo == "Substituição":
+def calc_xg_live(dados, eventos):
+    xg_total_1p = dados["xg_casa"] + dados["xg_fora"]
+    xgot_total_1p = dados["xgot_casa"] + dados["xgot_fora"]
+    xg_ponderado = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
+    remates_baliza_total = dados["remates_baliza_casa"] + dados["remates_baliza_fora"]
+    grandes_ocasioes_total = dados["grandes_ocasioes_casa"] + dados["grandes_ocasioes_fora"]
+    remates_ferro_total = dados["remates_ferro_casa"] + dados["remates_ferro_fora"]
+    ajuste = 1.0
+    diff_rating = dados["rating_casa"] - dados["rating_fora"]
+    ajuste += diff_rating * 0.10
+    if grandes_ocasioes_total >= 3: ajuste += 0.10
+    if remates_baliza_total >= 6: ajuste += 0.05
+    if xg_ponderado >= 1.0: ajuste += 0.10
+    if remates_ferro_total: ajuste += remates_ferro_total * 0.07
+    if dados["amarelos_casa"] >= 3: ajuste -= 0.05
+    if dados["amarelos_fora"] >= 3: ajuste -= 0.05
+    if dados["vermelhos_casa"]: ajuste -= 0.20 * dados["vermelhos_casa"]
+    if dados["vermelhos_fora"]: ajuste += 0.20 * dados["vermelhos_fora"]
+    for ev in eventos:
+        tipo = ev["tipo"]
+        eq = ev["equipa"]
+        if tipo == "Golo":
+            ajuste += 0.2 if eq == "Casa" else -0.2
+        elif tipo == "Expulsão":
+            ajuste -= 0.15 if eq == "Casa" else 0.15
+        elif tipo == "Penalty":
+            ajuste += 0.25 if eq == "Casa" else -0.25
+        elif tipo == "Substituição":
+            peso = 0
+            if ev.get("tipo_troca") == "Avançado por Médio":
+                peso = -0.08
+            elif ev.get("tipo_troca") == "Avançado por Defesa":
+                peso = -0.12
+            elif ev.get("tipo_troca") == "Médio por Avançado":
+                peso = +0.07
+            elif ev.get("tipo_troca") == "Defesa por Avançado":
+                peso = +0.10
+            elif ev.get("tipo_troca") == "Médio por Médio":
                 peso = 0
-                if ev.get("tipo_troca") == "Avançado por Médio":
-                    peso = -0.08
-                elif ev.get("tipo_troca") == "Avançado por Defesa":
-                    peso = -0.12
-                elif ev.get("tipo_troca") == "Médio por Avançado":
-                    peso = +0.07
-                elif ev.get("tipo_troca") == "Defesa por Avançado":
-                    peso = +0.10
-                elif ev.get("tipo_troca") == "Médio por Médio":
-                    peso = 0
-                ajuste += peso if eq == "Casa" else -peso
-            elif tipo == "Mudança de formação":
-                impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
-                ajuste += impacto if eq == "Casa" else -impacto
-            elif tipo == "Amarelo":
-                pos = ev.get("posicao", "Desconhecida")
-                if pos == "Defesa":
-                    ajuste -= 0.05 if eq == "Casa" else -0.05
-                elif pos == "Médio":
-                    ajuste -= 0.03 if eq == "Casa" else -0.03
-                elif pos == "Avançado":
-                    ajuste -= 0.01 if eq == "Casa" else -0.01
-        xg_2p = xg_ponderado * ajuste
-        return xg_2p, ajuste, xg_ponderado
+            ajuste += peso if eq == "Casa" else -peso
+        elif tipo == "Mudança de formação":
+            impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
+            ajuste += impacto if eq == "Casa" else -impacto
+        elif tipo == "Amarelo":
+            pos = ev.get("posicao", "Desconhecida")
+            if pos == "Defesa":
+                ajuste -= 0.05 if eq == "Casa" else -0.05
+            elif pos == "Médio":
+                ajuste -= 0.03 if eq == "Casa" else -0.03
+            elif pos == "Avançado":
+                ajuste -= 0.01 if eq == "Casa" else -0.01
+    xg_2p = xg_ponderado * ajuste
+    return xg_2p, ajuste, xg_ponderado
 
-    # ======= Parser M3U =======
-    def parse_m3u(m3u_text: str):
-        """
-        Devolve lista de canais: [{"name":..., "url":..., "logo":..., "group":...}]
-        Suporta #EXTM3U / #EXTINF.
-        """
-        channels = []
-        current = {}
-        for line in m3u_text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#EXTM3U"):
-                continue
-            if line.startswith("#EXTINF"):
-                name_match = line.split(",", 1)
-                name = name_match[1].strip() if len(name_match) > 1 else "Sem nome"
-                logo = ""
-                group = ""
-                m_logo = re.search(r'tvg-logo="([^"]*)"', line)
-                m_group = re.search(r'group-title="([^"]*)"', line)
-                if m_logo: logo = m_logo.group(1)
-                if m_group: group = m_group.group(1)
-                current = {"name": name, "logo": logo, "group": group}
-            elif not line.startswith("#") and current:
-                current["url"] = line
-                channels.append(current)
-                current = {}
-        return channels
+def parse_m3u(m3u_text: str):
+    """
+    Devolve lista de canais: [{"name":..., "url":..., "logo":..., "group":...}]
+    Suporta #EXTM3U / #EXTINF.
+    """
+    channels = []
+    current = {}
+    for line in m3u_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#EXTM3U"):
+            continue
+        if line.startswith("#EXTINF"):
+            name_match = line.split(",", 1)
+            name = name_match[1].strip() if len(name_match) > 1 else "Sem nome"
+            logo = ""
+            group = ""
+            m_logo = re.search(r'tvg-logo="([^"]*)"', line)
+            m_group = re.search(r'group-title="([^"]*)"', line)
+            if m_logo: logo = m_logo.group(1)
+            if m_group: group = m_group.group(1)
+            current = {"name": name, "logo": logo, "group": group}
+        elif not line.startswith("#") and current:
+            current["url"] = line
+            channels.append(current)
+            current = {}
+    return channels
 
-    # ================== INÍCIO APP (conteúdo autenticado) ===================
+# ================== UI / APP ==================
+if authentication_status is False:
+    st.error("Username ou password incorretos!")
+elif authentication_status is None:
+    st.warning("Por favor faz login.")
+else:
+    authenticator.logout('Logout', 'sidebar')
+    st.sidebar.success(f"Bem-vindo, {name}!")
+
     st.title("⚽️ CR7 BOT — Treinador ChatGPT (Pré-Jogo + Live + Inteligência)")
     tab1, tab2, tab3 = st.tabs([
         "⚽ Pré-Jogo",
@@ -202,7 +224,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
     with tab1:
         st.header("Análise Pré-Jogo")
 
-        # ----- 1. Formação inicial e abordagem -----
         st.subheader("Formações e Estratégias")
         colf1, colf2 = st.columns(2)
         with colf1:
@@ -212,7 +233,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
             form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
             tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
 
-        # ----- 2. Titulares -----
         st.subheader("Titulares disponíveis")
         titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
         ausentes_casa = []
@@ -224,6 +244,7 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
                 pos = st.selectbox(f"Posição", posicoes_lista, key=f"pos_casa_{i}")
                 imp = st.selectbox("Importância", importancias_lista, key=f"imp_casa_{i}")
                 ausentes_casa.append({"posição": pos, "importancia": imp})
+
         titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
         ausentes_fora = []
         if titulares_fora < 11:
@@ -235,13 +256,11 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
                 imp = st.selectbox("Importância", importancias_lista, key=f"imp_fora_{i}")
                 ausentes_fora.append({"posição": pos, "importancia": imp})
 
-        # ----- 3. Meteorologia, Árbitro, Motivação -----
         st.subheader("Condições Especiais")
         meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
         arbitro_nota = st.slider("Nota do Árbitro (0=caseiro, 10=deixa jogar)", 0.0, 10.0, 5.0, step=0.1, key="arbitro_pre")
         motivacao = st.selectbox("Motivação principal do jogo", ["Normal", "Alta (decisão)", "Baixa"], key="motivacao_pre")
 
-        # ----- 4. Totais de Golos & Jogos (médias automáticas) -----
         with st.form("totais_golos_form"):
             st.subheader("Equipa da CASA")
             total_golos_casa = st.number_input("Total de golos marcados (CASA)", min_value=0, value=0, key="golos_casa")
@@ -279,7 +298,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
             }
             st.success("Totais confirmados!")
 
-        # --- 5. ODDS DE MERCADO e NORMALIZAÇÃO ---
         st.subheader("Odds de Mercado (Casa de Apostas)")
         colod1, colod2, colod3 = st.columns(3)
         with colod1:
@@ -294,7 +312,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
         soma_btts = odd_btts_sim + odd_btts_nao
         st.info(f"Soma odds 1X2: **{soma_1x2:.2f}** (máximo normal: 8.55) | Soma BTTS: **{soma_btts:.2f}**")
 
-        # --- EXPORTAÇÃO DADOS ---
         if st.button("Exportar para Excel (Pré-Jogo)"):
             dados = {
                 "Odd": ["Casa", "Empate", "Fora", "BTTS Sim", "BTTS Não"],
@@ -308,11 +325,10 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
                 mime="application/vnd.ms-excel"
             )
 
-    # ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
+    # ========= TAB LIVE =========
     with tab2:
         st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + Treinador ChatGPT)")
 
-        # --- Formação inicial live + abordagem ---
         st.subheader("Formações e Estratégias (início da 2ª parte)")
         col_livef1, col_livef2 = st.columns(2)
         with col_livef1:
@@ -322,7 +338,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
             form_fora_live = st.selectbox("Formação FORA (Live)", formacoes_lista, key="form_fora_live")
             tipo_form_fora_live = st.selectbox("Abordagem FORA", tipos_formacao, key="tipo_form_fora_live")
 
-        # --- Estatísticas da 1ª Parte
         with st.form("form_live_base"):
             resultado_intervalo = st.text_input("Resultado ao intervalo", value="0-0")
             xg_casa = st.number_input("xG equipa da CASA (1ª parte)", min_value=0.0, value=0.0, step=0.01)
@@ -357,7 +372,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
             }
             st.success("Estatísticas e formações registadas! Agora adiciona eventos live.")
 
-        # --- ESCUTA DE EVENTOS LIVE ---
         if "eventos_live" not in st.session_state:
             st.session_state["eventos_live"] = []
 
@@ -403,7 +417,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
         else:
             st.write("Nenhum evento registado ainda.")
 
-        # ---- PAINEL DE INTELIGÊNCIA: Treinador ChatGPT ----
         st.markdown("### 🤖 **Treinador ChatGPT** — Interpretação Tática Live")
         resultado_actual = 0
         comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
@@ -433,7 +446,6 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
             st.session_state["eventos_live"] = []
             st.success("Lista de eventos live limpa!")
 
-        # EXPORTAÇÃO LIVE (eventos + base)
         if st.button("Exportar para Excel (Live)"):
             base = st.session_state.get('live_base', {})
             df_base = pd.DataFrame([base])
@@ -535,8 +547,3 @@ meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
         st.info("Dica: se o canal não abrir por CORS, usa um proxy próprio ou um URL que permita acesso direto.")
         st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
-
-# =========== FIM ===========
-
-
-
