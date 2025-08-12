@@ -1,3 +1,8 @@
+# =============================== #
+#  PauloDamas-GPT (Streamlit App)
+#  Com leitor HLS/M3U8 integrado
+# =============================== #
+
 import streamlit as st
 import hashlib
 import json
@@ -10,6 +15,78 @@ import time
 import re
 from urllib.parse import urlparse
 import streamlit.components.v1 as components
+from html import escape  # sanitização de mensagens no chat
+
+# --------- CONFIG DA PÁGINA (1º call do Streamlit) ---------
+st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
+
+# ======== LEITOR M3U/M3U8 - FUNÇÕES AUXILIARES (definidas ANTES de usar) ========
+M3U_ENTRY_RE = re.compile(
+    r'#EXTINF:-?\d+.*?,(?P<name>.+)\n(?P<url>https?://[^\s]+)',
+    re.IGNORECASE
+)
+
+def parse_m3u(text: str):
+    """Devolve lista de dicts: [{'name':..., 'url':...}] a partir de .m3u simples."""
+    chans = []
+    for m in M3U_ENTRY_RE.finditer(text.replace('\r','')):
+        chans.append({"name": m.group('name').strip(), "url": m.group('url').strip()})
+    return chans
+
+def looks_safe_m3u8(url: str) -> bool:
+    try:
+        u = urlparse(url)
+        return u.scheme in ('http','https') and (u.path.endswith('.m3u8') or '.m3u8' in u.path)
+    except Exception:
+        return False
+
+def hls_player(url: str, height: int = 420):
+    """Renderiza um player HLS com hls.js dentro do Streamlit."""
+    safe_url = url.replace('"','%22').replace("'", "%27")
+    html = f"""
+    <div style="position:relative;width:100%;max-width:1000px;margin:0 auto;">
+      <video id="v" controls playsinline style="width:100%;height:auto;background:#000;" poster="">
+        Your browser does not support the video tag.
+      </video>
+      <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;">
+        <button onclick="pip()" style="padding:6px 10px;">PiP</button>
+        <button onclick="fs()"  style="padding:6px 10px;">Fullscreen</button>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script>
+      const url = "{safe_url}";
+      const video = document.getElementById('v');
+
+      function start(){{
+        if (Hls.isSupported()) {{
+          const hls = new Hls({{lowLatencyMode:true}});
+          hls.loadSource(url);
+          hls.attachMedia(video);
+        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
+          video.src = url;
+        }} else {{
+          video.outerHTML = "<div>HLS não suportado neste browser.</div>";
+        }}
+      }}
+      async function pip() {{
+        try {{
+          if (document.pictureInPictureElement) {{
+            await document.exitPictureInPicture();
+          }} else {{
+            if (!video.src) return;
+            await video.requestPictureInPicture();
+          }}
+        }} catch(e){{ console.log(e); }}
+      }}
+      function fs(){{
+        if (video.requestFullscreen) video.requestFullscreen();
+      }}
+      start();
+    </script>
+    """
+    components.html(html, height=height)
+
 
 # ======== FICHEIROS ========
 USERS_FILE = "users.json"
@@ -82,81 +159,8 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
 else:
     set_online(st.session_state['logged_user'], True)
 
-st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
-
-
-
+# ======== TÍTULO + LEITOR (UI usa as funções já definidas) ========
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
-# ======== LEITOR M3U/M3U8 - FUNÇÕES AUXILIARES ========
-import re
-from urllib.parse import urlparse
-import streamlit.components.v1 as components
-
-M3U_ENTRY_RE = re.compile(
-    r'#EXTINF:-?\d+.*?,(?P<name>.+)\n(?P<url>https?://[^\s]+)',
-    re.IGNORECASE
-)
-
-def parse_m3u(text: str):
-    """Devolve lista de dicts: [{'name':..., 'url':...}]"""
-    chans = []
-    for m in M3U_ENTRY_RE.finditer(text.replace('\r','')):
-        chans.append({"name": m.group('name').strip(), "url": m.group('url').strip()})
-    return chans
-
-def looks_safe_m3u8(url: str) -> bool:
-    try:
-        u = urlparse(url)
-        return u.scheme in ('http','https') and (u.path.endswith('.m3u8') or '.m3u8' in u.path)
-    except Exception:
-        return False
-
-def hls_player(url: str, height: int = 420):
-    """Renderiza um player HLS com hls.js dentro do Streamlit."""
-    safe_url = url.replace('"','%22').replace("'", "%27")
-    html = f"""
-    <div style="position:relative;width:100%;max-width:1000px;margin:0 auto;">
-      <video id="v" controls playsinline style="width:100%;height:auto;background:#000;" poster="">
-        Your browser does not support the video tag.
-      </video>
-      <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;">
-        <button onclick="pip()" style="padding:6px 10px;">PiP</button>
-        <button onclick="fs()"  style="padding:6px 10px;">Fullscreen</button>
-      </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script>
-      const url = "{safe_url}";
-      const video = document.getElementById('v');
-
-      function start(){{
-        if (Hls.isSupported()) {{
-          const hls = new Hls({{lowLatencyMode:true}});
-          hls.loadSource(url);
-          hls.attachMedia(video);
-        }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-          video.src = url;
-        }} else {{
-          video.outerHTML = "<div>HLS não suportado neste browser.</div>";
-        }}
-      }}
-      async function pip() {{
-        try {{
-          if (document.pictureInPictureElement) {{
-            await document.exitPictureInPicture();
-          }} else {{
-            if (!video.src) return;
-            await video.requestPictureInPicture();
-          }}
-        }} catch(e){{ console.log(e); }}
-      }}
-      function fs(){{
-        if (video.requestFullscreen) video.requestFullscreen();
-      }}
-      start();
-    </script>
-    """
-    components.html(html, height=height)
 
 # ====== BLOCO LEITOR M3U/M3U8 ======
 st.markdown("### 📺 Leitor ao vivo (HLS / M3U8)")
@@ -199,7 +203,6 @@ with st.container():
                 hls_player(selected_url, height=420 if not auto_play else 460)
         else:
             st.info("Escolhe um canal .m3u8 ou faz upload de um ficheiro .m3u para listar canais.")
-
 
 # ======== FUNÇÕES UTILITÁRIAS ========
 def kelly_criterion(prob, odd, banca, fracao=1):
@@ -752,8 +755,6 @@ def emoji_bar():
 st.sidebar.markdown("---")  # separador visual
 
 st.sidebar.markdown("### 💬 Chat Global")
-from html import escape  # <-- para sanitização
-
 chat_msgs = load_chat()[-50:]
 for m in chat_msgs:
     u, msg, dt = m['user'], m['msg'], m['dt']
@@ -770,7 +771,7 @@ if st.sidebar.button("🗑️ Limpar Chat"):
     if os.path.exists(CHAT_FILE):
         os.remove(CHAT_FILE)
         st.sidebar.success("Chat limpo!")
-        st.rerun()  # apenas uma chamada
+        st.rerun()
 
 def emoji_bar_sidebar():
     emojis = ["😀","👍","⚽","🔥","🤔","😭","🙌","💰","😎","🤡","🤩","🤬","😂","🥳","👏","🟢","🔴","🔵","🟠","🟣","⚠️","❤️"]
@@ -786,10 +787,6 @@ with st.sidebar.form(key="chat_form_sidebar", clear_on_submit=True):
         try:
             user = st.session_state.get("logged_user", "desconhecido")
             save_message(user, msg.strip())
-            st.rerun()  # apenas uma chamada
+            st.rerun()
         except Exception as e:
             st.sidebar.error(f"Erro ao enviar mensagem: {e}")
-
-
-
-            
