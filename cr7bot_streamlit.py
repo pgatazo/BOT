@@ -3,7 +3,6 @@ st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered"
 
 import pandas as pd
 from io import BytesIO
-import streamlit_authenticator as stauth
 import re
 import streamlit.components.v1 as components
 
@@ -37,23 +36,23 @@ authenticator = stauth.Authenticate(
 
 name, authentication_status, username = authenticator.login("Login", "main")
 
+# --- Listas para dropdowns (SEM indentação extra)
+formacoes_lista = [
+    "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
+    "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
+    "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
+    "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
+]
+tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
+tipos_troca = [
+    "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
+    "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
+    "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
+]
+posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
+importancias_lista = ["Peça chave", "Importante", "Normal"]
+meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
-    # --- Listas para dropdowns
-    formacoes_lista = [
-        "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
-        "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
-        "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
-        "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
-    ]
-    tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
-    tipos_troca = [
-        "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
-        "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
-        "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
-    ]
-    posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
-    importancias_lista = ["Peça chave", "Importante", "Normal"]
-    meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
 
     # ========= INTELIGÊNCIA TÁTICA / SUGESTÃO DE FORMAÇÃO =========
     def sugestao_formacao(eventos):
@@ -539,4 +538,5 @@ name, authentication_status, username = authenticator.login("Login", "main")
         st.caption("⚠️ Certifica-te de que tens direitos para ver os streams. Não uses fontes ilegais.")
 
 # =========== FIM ===========
+
 
