@@ -4,7 +4,6 @@ opencv-python
 Pillow
 xlsxwriter
 streamlit-autorefresh
-streamlit-authenticator==0.2.2
 streamlit>=1.31
 pandas
 xlsxwriter
