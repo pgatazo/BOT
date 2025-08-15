@@ -783,7 +783,7 @@ with tab2:
             Eventos registados: {len(st.session_state["eventos_live"])}
             """)
 
-    if st.button("📊 Exportar Excel Detalhado (Live)"):
+if st.button("📊 Exportar Excel Detalhado (Live)"):
     analise_final = st.session_state.get("analise_final", {})
     base = st.session_state.get("live_base", {})
     eventos = st.session_state.get("eventos_live", [])
@@ -798,11 +798,13 @@ with tab2:
         mime="application/vnd.ms-excel"
     )
 
-    if st.button("🗑️ Limpar eventos LIVE"):
-        st.session_state["eventos_live"] = []
-        st.success("Lista de eventos live limpa!")
+# 👉 agora está fora, aparece sempre
+if st.button("🗑️ Limpar eventos LIVE"):
+    st.session_state["eventos_live"] = []
+    st.success("Lista de eventos live limpa!")
 
-    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
 
 # ====== AUTOREFRESH DO CHAT ======
 st_autorefresh(interval=5000, key="chatrefresh")
