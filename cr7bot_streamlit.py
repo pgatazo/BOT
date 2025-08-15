@@ -644,18 +644,18 @@ with tab1:
     st.markdown('</div>', unsafe_allow_html=True)
     
     if st.button("🗑️ Limpar Pré-Análise"):
-        for key in list(st.session_state.keys()):
-            if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
-                del st.session_state[key]
-        st.success("Pré-análise limpa!")
-    
-    if st.button("📊 Exportar Excel Detalhado (Pré-Jogo)"):
-        excel_data = export_detalhado(st.session_state.get("medias", {}), [])
-        st.download_button(
-            label="📥 Download Excel Detalhado",
-            data=excel_data,
-            file_name="pre_jogo_detalhado.xlsx",
-            mime="application/vnd.ms-excel"
+    for key in list(st.session_state.keys()):
+        if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
+            del st.session_state[key]
+    st.success("Pré-análise limpa!")
+
+if st.button("📊 Exportar Excel Detalhado (Pré-Jogo)"):
+    excel_data = export_detalhado(st.session_state.get("medias", {}), [])
+    st.download_button(
+        label="📥 Download Excel Detalhado",
+        data=excel_data,
+        file_name="pre_jogo_detalhado.xlsx",
+        mime="application/vnd.ms-excel"
     )
 
 
@@ -783,22 +783,50 @@ with tab2:
             Eventos registados: {len(st.session_state["eventos_live"])}
             """)
 
-if st.button("📊 Exportar Excel Detalhado (Live)"):
-    analise_final = st.session_state.get("analise_final", {})
+    # ---- ANÁLISE FINAL E EXPORTAÇÃO LIVE ----
+if st.button("Gerar Análise Final"):
+    if 'live_base' not in st.session_state:
+        st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
+    else:
+        xg_2p, ajuste, xg_ponderado = calc_xg_live(
+            st.session_state['live_base'],
+            st.session_state.get("eventos_live", [])
+        )
+        st.session_state["analise_final"] = {
+            "xg_2p": xg_2p,
+            "ajuste": ajuste,
+            "xg_ponderado": xg_ponderado
+        }
+        st.success("✅ Análise final gerada e guardada!")
+
+# Mostrar análise + exportação SE já existir
+if "analise_final" in st.session_state:
+    analise_final = st.session_state["analise_final"]
+
+    st.markdown(f"### 🟢 Golos Esperados (2ª parte): {analise_final['xg_2p']:.2f}")
+    st.info(f"""
+    **Resumo do Ajuste:**  
+    - xG ponderado: {analise_final['xg_ponderado']:.2f}  
+    - Ajuste total: {analise_final['ajuste']:.2f}  
+    - Eventos registados: {len(st.session_state.get('eventos_live', []))}
+    """)
+
     base = st.session_state.get("live_base", {})
     eventos = st.session_state.get("eventos_live", [])
-    xg_2p = analise_final.get("xg_2p")
-    ajuste = analise_final.get("ajuste")
-    xg_ponderado = analise_final.get("xg_ponderado")
-    excel_data = export_detalhado(base, eventos, xg_2p, ajuste, xg_ponderado)
+    excel_data = export_detalhado(
+        base, eventos,
+        analise_final["xg_2p"],
+        analise_final["ajuste"],
+        analise_final["xg_ponderado"]
+    )
     st.download_button(
-        label="📥 Download Excel Detalhado",
+        label="📥 Download Excel Detalhado (Live)",
         data=excel_data,
         file_name="live_detalhado.xlsx",
         mime="application/vnd.ms-excel"
     )
 
-# 👉 agora está fora, aparece sempre
+# Botão independente de limpar eventos
 if st.button("🗑️ Limpar eventos LIVE"):
     st.session_state["eventos_live"] = []
     st.success("Lista de eventos live limpa!")
