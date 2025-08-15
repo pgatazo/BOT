@@ -646,16 +646,16 @@ with tab1:
     if st.button("🗑️ Limpar Pré-Análise"):
         for key in list(st.session_state.keys()):
             if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
-            del st.session_state[key]
-    st.success("Pré-análise limpa!")
+                del st.session_state[key]
+        st.success("Pré-análise limpa!")
     
     if st.button("📊 Exportar Excel Detalhado (Pré-Jogo)"):
         excel_data = export_detalhado(st.session_state.get("medias", {}), [])
-    st.download_button(
-        label="📥 Download Excel Detalhado",
-        data=excel_data,
-        file_name="pre_jogo_detalhado.xlsx",
-        mime="application/vnd.ms-excel"
+        st.download_button(
+            label="📥 Download Excel Detalhado",
+            data=excel_data,
+            file_name="pre_jogo_detalhado.xlsx",
+            mime="application/vnd.ms-excel"
     )
 
 
