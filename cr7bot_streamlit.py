@@ -41,64 +41,160 @@ if authentication_status:
         processed_data = output.getvalue()
         return processed_data
 
-    # ======= NOVA FUNÇÃO DETALHADA =======
+    # ---- Exportação detalhada (Pré e Live) ----
     def export_detalhado(live_base, eventos, xg_2p, ajuste, xg_ponderado):
-        pesos_aplicados = []
-        xg_total_1p = live_base["xg_casa"] + live_base["xg_fora"]
-        xgot_total_1p = live_base["xgot_casa"] + live_base["xgot_fora"]
-        xg_pond = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
-        diff_rating = live_base["rating_casa"] - live_base["rating_fora"]
-        pesos_aplicados.append(("Diferença rating", diff_rating * 0.10))
-        if live_base["grandes_ocasioes_casa"] + live_base["grandes_ocasioes_fora"] >= 3:
-            pesos_aplicados.append(("Grandes ocasiões >=3", 0.10))
-        if live_base["remates_baliza_casa"] + live_base["remates_baliza_fora"] >= 6:
-            pesos_aplicados.append(("Remates baliza >=6", 0.05))
-        if xg_pond >= 1.0:
-            pesos_aplicados.append(("xG ponderado >=1", 0.10))
-        if live_base["remates_ferro_casa"] + live_base["remates_ferro_fora"]:
-            pesos_aplicados.append(("Remates ao ferro", (live_base["remates_ferro_casa"] + live_base["remates_ferro_fora"]) * 0.07))
-        if live_base["amarelos_casa"] >= 3:
-            pesos_aplicados.append(("3+ amarelos CASA", -0.05))
-        if live_base["amarelos_fora"] >= 3:
-            pesos_aplicados.append(("3+ amarelos FORA", -0.05))
-        if live_base["vermelhos_casa"]:
-            pesos_aplicados.append(("Vermelhos CASA", -0.20 * live_base["vermelhos_casa"]))
-        if live_base["vermelhos_fora"]:
-            pesos_aplicados.append(("Vermelhos FORA", 0.20 * live_base["vermelhos_fora"]))
-        for ev in eventos:
-            peso = 0
-            if ev["tipo"] == "Golo":
-                peso = 0.2 if ev["equipa"] == "Casa" else -0.2
-            elif ev["tipo"] == "Expulsão":
-                peso = -0.15 if ev["equipa"] == "Casa" else 0.15
-            elif ev["tipo"] == "Penalty":
-                peso = 0.25 if ev["equipa"] == "Casa" else -0.25
-            elif ev["tipo"] == "Substituição":
-                mapping = {
-                    "Avançado por Médio": -0.08, "Avançado por Defesa": -0.12,
-                    "Médio por Avançado": 0.07, "Defesa por Avançado": 0.10, "Médio por Médio": 0
-                }
-                base = mapping.get(ev.get("tipo_troca"), 0)
-                peso = base if ev["equipa"] == "Casa" else -base
-            elif ev["tipo"] == "Mudança de formação":
-                impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
-                peso = impacto if ev["equipa"] == "Casa" else -impacto
-            elif ev["tipo"] == "Amarelo":
-                mapping = {"Defesa": -0.05, "Médio": -0.03, "Avançado": -0.01}
-                base = mapping.get(ev.get("posicao"), 0)
-                peso = base if ev["equipa"] == "Casa" else -base
-            pesos_aplicados.append((f"{ev['tipo']} ({ev['equipa']})", peso))
-        df_base = pd.DataFrame([live_base])
-        df_eventos = pd.DataFrame(eventos)
-        df_pesos = pd.DataFrame(pesos_aplicados, columns=["Fator", "Peso aplicado"])
-        df_resultado = pd.DataFrame([{"xg_ponderado": xg_ponderado, "Ajuste final": ajuste, "xg_2p": xg_2p}])
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_base.to_excel(writer, sheet_name='Base', index=False)
-            df_eventos.to_excel(writer, sheet_name='Eventos', index=False)
-            df_pesos.to_excel(writer, sheet_name='Pesos', index=False)
-            df_resultado.to_excel(writer, sheet_name='Resultado', index=False)
+            # Aba Base
+            if live_base:
+                pd.DataFrame([live_base]).to_excel(writer, sheet_name='Base', index=False)
+            # Aba Eventos
+            if eventos:
+                pd.DataFrame(eventos).to_excel(writer, sheet_name='Eventos', index=False)
+            # Aba Pesos
+            if xg_ponderado is not None and ajuste is not None:
+                pesos_data = []
+                pesos_data.append({"Categoria": "Base", "Fator": "xG ponderado", "Valor": round(xg_ponderado, 3)})
+                pesos_data.append({"Categoria": "Base", "Fator": "Ajuste Total", "Valor": round(ajuste, 3)})
+                pd.DataFrame(pesos_data).to_excel(writer, sheet_name='Pesos', index=False)
+            # Aba Resultado Final
+            if xg_2p is not None:
+                pd.DataFrame([{
+                    "xG Ponderado": xg_ponderado,
+                    "Ajuste Total": ajuste,
+                    "xG Previsto 2ª parte": xg_2p
+                }]).to_excel(writer, sheet_name='Resultado Final', index=False)
+            # Aba Passo-a-passo
+            passos = [
+                {"Passo": "1", "Descrição": "Calcular xG total 1ª parte"},
+                {"Passo": "2", "Descrição": "Calcular xGOT total 1ª parte"},
+                {"Passo": "3", "Descrição": "Combinar em xG ponderado (70% xG + 30% xGOT)"},
+                {"Passo": "4", "Descrição": "Aplicar diferença de rating"},
+                {"Passo": "5", "Descrição": "Ajustar por grandes ocasiões, remates, cartões"},
+                {"Passo": "6", "Descrição": "Ajustar por eventos live"},
+                {"Passo": "7", "Descrição": "Calcular xG final 2ª parte"}
+            ]
+            pd.DataFrame(passos).to_excel(writer, sheet_name='Passo_a_passo', index=False)
         return output.getvalue()
+
+    # --- Listas para dropdowns ---
+    formacoes_lista = [
+        "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
+        "3-4-2-1", "3-4-1-2", "3-6-1", "4-4-1-1", "4-3-1-2", "4-2-2-2", "4-3-2-1",
+        "5-4-1", "5-2-3", "5-2-1-2", "4-1-2-1-2", "3-5-1-1", "4-1-2-3", "3-3-3-1",
+        "3-2-3-2", "3-3-1-3", "4-2-4", "4-3-2", "3-2-5", "2-3-5", "4-2-1-3", "Outro"
+    ]
+    tipos_formacao = ["Atacante", "Equilibrado", "Defensivo"]
+    tipos_troca = [
+        "Avançado por Avançado", "Avançado por Médio", "Avançado por Defesa",
+        "Médio por Avançado", "Médio por Médio", "Médio por Defesa",
+        "Defesa por Avançado", "Defesa por Médio", "Defesa por Defesa", "Outro"
+    ]
+    posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
+    importancias_lista = ["Peça chave", "Importante", "Normal"]
+    meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
+
+    # ========= INTELIGÊNCIA TÁTICA / SUGESTÃO DE FORMAÇÃO =========
+    def sugestao_formacao(eventos):
+        if not eventos:
+            return ""
+        ultimo = eventos[-1]
+        if ultimo["tipo"] == "Substituição":
+            if ultimo.get("tipo_troca") in ["Avançado por Médio", "Avançado por Defesa"]:
+                return "⚠️ Sugerido: equipa pode alterar para sistema mais defensivo (ex: 4-5-1, 5-4-1, 4-2-3-1)."
+            if ultimo.get("tipo_troca") in ["Defesa por Avançado", "Médio por Avançado"]:
+                return "⚡ Sugerido: treinador procura mais ataque (ex: 4-3-3 atacante, 4-2-4, 3-4-3)."
+        return ""
+
+    def interpretar_tatica(eventos, live_base, resultado_actual):
+        comentario = ""
+        ultimo = eventos[-1] if eventos else {}
+        equipa = ultimo.get("equipa", "")
+        if not eventos:
+            return "Sem eventos recentes. O treinador mantém o plano inicial."
+        if ultimo["tipo"] == "Substituição":
+            tipo_troca = ultimo.get("tipo_troca", "")
+            if tipo_troca in ["Avançado por Médio", "Avançado por Defesa"]:
+                comentario = f"O treinador ({equipa}) abdica de ataque por meio-campo/defesa. Pode estar a proteger vantagem ou fechar jogo."
+            elif tipo_troca in ["Defesa por Avançado", "Médio por Avançado"]:
+                comentario = f"O treinador ({equipa}) lança mais ataque, quer marcar ou virar o resultado."
+            elif tipo_troca == "Médio por Médio":
+                comentario = f"O treinador ({equipa}) mantém equilíbrio no meio-campo."
+            else:
+                comentario = f"Substituição sem alteração táctica evidente ({tipo_troca})."
+        elif ultimo["tipo"] == "Mudança de formação":
+            nova_form = ultimo.get("nova_formacao", "")
+            tipo_nova = ultimo.get("tipo_formacao", "")
+            if tipo_nova == "Atacante":
+                comentario = f"O treinador ({equipa}) muda para formação ofensiva ({nova_form}). Procura marcar."
+            elif tipo_nova == "Defensivo":
+                comentario = f"O treinador ({equipa}) muda para formação defensiva ({nova_form}). Procura segurar resultado."
+            else:
+                comentario = f"Mudança de formação para ({nova_form}), mantendo equilíbrio."
+        elif ultimo["tipo"] == "Expulsão":
+            pos = ultimo.get("posicao", "Desconhecida")
+            imp = ultimo.get("importancia", "Normal")
+            comentario = f"Expulsão ({imp}) na posição {pos} ({equipa}). Vai obrigar a ajustar bloco."
+        elif ultimo["tipo"] == "Amarelo":
+            pos = ultimo.get("posicao", "Desconhecida")
+            imp = ultimo.get("importancia", "Normal")
+            comentario = f"Cartão amarelo para {pos} ({equipa}) — jogador condicionado."
+        elif ultimo["tipo"] == "Penalty":
+            comentario = f"Penalty para {equipa}! Expectável reação tática dependendo do resultado."
+        elif ultimo["tipo"] == "Golo":
+            comentario = f"Golo para {equipa}! Expectável ajuste do adversário."
+        else:
+            comentario = "Sem alteração táctica identificada."
+        comentario += "\n" + sugestao_formacao(eventos)
+        return "🤖 Treinador ChatGPT: " + comentario
+    # ======= Cálculo de xG Live =======
+    def calc_xg_live(dados, eventos):
+        xg_total_1p = dados["xg_casa"] + dados["xg_fora"]
+        xgot_total_1p = dados["xgot_casa"] + dados["xgot_fora"]
+        xg_ponderado = 0.7 * xg_total_1p + 0.3 * xgot_total_1p
+        remates_baliza_total = dados["remates_baliza_casa"] + dados["remates_baliza_fora"]
+        grandes_ocasioes_total = dados["grandes_ocasioes_casa"] + dados["grandes_ocasioes_fora"]
+        remates_ferro_total = dados["remates_ferro_casa"] + dados["remates_ferro_fora"]
+        ajuste = 1.0
+        diff_rating = dados["rating_casa"] - dados["rating_fora"]
+        ajuste += diff_rating * 0.10
+        if grandes_ocasioes_total >= 3: ajuste += 0.10
+        if remates_baliza_total >= 6: ajuste += 0.05
+        if xg_ponderado >= 1.0: ajuste += 0.10
+        if remates_ferro_total: ajuste += remates_ferro_total * 0.07
+        if dados["amarelos_casa"] >= 3: ajuste -= 0.05
+        if dados["amarelos_fora"] >= 3: ajuste -= 0.05
+        if dados["vermelhos_casa"]: ajuste -= 0.20 * dados["vermelhos_casa"]
+        if dados["vermelhos_fora"]: ajuste += 0.20 * dados["vermelhos_fora"]
+        # Eventos detalhados
+        for ev in eventos:
+            tipo = ev["tipo"]
+            eq = ev["equipa"]
+            if tipo == "Golo":
+                ajuste += 0.2 if eq == "Casa" else -0.2
+            elif tipo == "Expulsão":
+                ajuste -= 0.15 if eq == "Casa" else 0.15
+            elif tipo == "Penalty":
+                ajuste += 0.25 if eq == "Casa" else -0.25
+            elif tipo == "Substituição":
+                peso = 0
+                if ev.get("tipo_troca") == "Avançado por Médio": peso = -0.08
+                elif ev.get("tipo_troca") == "Avançado por Defesa": peso = -0.12
+                elif ev.get("tipo_troca") == "Médio por Avançado": peso = +0.07
+                elif ev.get("tipo_troca") == "Defesa por Avançado": peso = +0.10
+                elif ev.get("tipo_troca") == "Médio por Médio": peso = 0
+                ajuste += peso if eq == "Casa" else -peso
+            elif tipo == "Mudança de formação":
+                impacto = 0.08 if ev.get("tipo_formacao") == "Atacante" else -0.08 if ev.get("tipo_formacao") == "Defensivo" else 0
+                ajuste += impacto if eq == "Casa" else -impacto
+            elif tipo == "Amarelo":
+                pos = ev.get("posicao", "Desconhecida")
+                if pos == "Defesa": ajuste -= 0.05 if eq == "Casa" else -0.05
+                elif pos == "Médio": ajuste -= 0.03 if eq == "Casa" else -0.03
+                elif pos == "Avançado": ajuste -= 0.01 if eq == "Casa" else -0.01
+        xg_2p = xg_ponderado * ajuste
+        return xg_2p, ajuste, xg_ponderado
+
     # ================== INÍCIO APP ===================
     st.set_page_config(page_title="CR7 BOT — Treinador ChatGPT", layout="centered")
     st.title("⚽️ CR7 BOT — Treinador ChatGPT (Pré-Jogo + Live + Inteligência)")
@@ -186,7 +282,7 @@ if authentication_status:
             }
             st.success("Totais confirmados!")
 
-        # --- 5. ODDS DE MERCADO e NORMALIZAÇÃO ---
+        # --- 5. ODDS DE MERCADO ---
         st.subheader("Odds de Mercado (Casa de Apostas)")
         colod1, colod2, colod3 = st.columns(3)
         with colod1:
@@ -199,21 +295,28 @@ if authentication_status:
         odd_btts_nao = st.number_input("Odd Ambas Marcam NÃO", min_value=1.01, value=1.80, key="odd_btts_nao")
         soma_1x2 = odd_casa + odd_empate + odd_fora
         soma_btts = odd_btts_sim + odd_btts_nao
-        st.info(f"Soma odds 1X2: **{soma_1x2:.2f}** (máximo normal: 8.55) | Soma BTTS: **{soma_btts:.2f}**")
+        st.info(f"Soma odds 1X2: **{soma_1x2:.2f}** | Soma BTTS: **{soma_btts:.2f}**")
 
         # --- EXPORTAÇÃO DADOS ---
-        if st.button("Exportar para Excel (Pré-Jogo)"):
+        if st.button("📥 Exportar Excel (Pré-Jogo)"):
             dados = {
                 "Odd": ["Casa", "Empate", "Fora", "BTTS Sim", "BTTS Não"],
                 "Valor": [odd_casa, odd_empate, odd_fora, odd_btts_sim, odd_btts_nao]
             }
             df = pd.DataFrame(dados)
             st.download_button(
-                label="📥 Download Excel",
+                label="⬇️ Download Odds Excel",
                 data=to_excel(df),
                 file_name="odds_pre_jogo.xlsx",
                 mime="application/vnd.ms-excel"
             )
+
+        if st.button("🗑️ Limpar Pré-Análise"):
+            for key in list(st.session_state.keys()):
+                if key.endswith("_pre") or key in ["medias", "golos_casa", "sofridos_casa",
+                                                   "golos_fora", "sofridos_fora", "golos_h2h_casa", "golos_h2h_fora"]:
+                    del st.session_state[key]
+            st.success("Pré-análise limpa com sucesso!")
     # ========= TAB LIVE / 2ª PARTE COM ESCUTA =========
     with tab2:
         st.header("Live/2ª Parte — Previsão de Golos (Modo Escuta + Treinador ChatGPT)")
@@ -283,7 +386,11 @@ if authentication_status:
             tipo_form_ev = st.selectbox("Nova abordagem", tipos_formacao, key="tipo_form_ev")
 
         if st.button("Adicionar evento LIVE"):
-            evento = {"tipo": tipo_evento, "equipa": equipa_evento, "detalhes": detalhes_evento}
+            evento = {
+                "tipo": tipo_evento,
+                "equipa": equipa_evento,
+                "detalhes": detalhes_evento
+            }
             if posicao_ev: evento["posicao"] = posicao_ev
             if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
             if nova_form_ev: evento["nova_formacao"] = nova_form_ev
@@ -310,13 +417,18 @@ if authentication_status:
         resultado_actual = 0
         comentario = interpretar_tatica(st.session_state["eventos_live"], st.session_state.get('live_base', {}), resultado_actual)
         st.info(comentario)
-
+        # ---- BOTÃO ATUALIZAR PREVISÃO ----
         if st.button("🔁 Atualizar Previsão com Eventos Live"):
             if 'live_base' not in st.session_state:
                 st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
             else:
                 xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state["eventos_live"])
-                st.session_state["analise_final"] = {"xg_2p": xg_2p, "ajuste": ajuste, "xg_ponderado": xg_ponderado}
+                st.session_state["analise_final"] = {
+                    "xg_2p": xg_2p,
+                    "ajuste": ajuste,
+                    "xg_ponderado": xg_ponderado,
+                    "eventos": len(st.session_state["eventos_live"])
+                }
                 st.markdown(f"### 🟢 **Golos Esperados para a 2ª parte:** `{xg_2p:.2f}`")
                 if xg_2p >= 1.6:
                     st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
@@ -324,21 +436,42 @@ if authentication_status:
                     st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
                 else:
                     st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
-                st.info(f"xG ponderado: {xg_ponderado:.2f} | Ajuste: {ajuste:.2f} | Eventos: {len(st.session_state['eventos_live'])}")
 
-        if "analise_final" in st.session_state:
-            if st.button("📥 Exportar Análise Detalhada"):
-                data_excel = export_detalhado(st.session_state['live_base'], st.session_state['eventos_live'],
-                                              st.session_state["analise_final"]["xg_2p"],
-                                              st.session_state["analise_final"]["ajuste"],
-                                              st.session_state["analise_final"]["xg_ponderado"])
-                st.download_button(label="Download Excel Detalhado", data=data_excel,
-                                   file_name="analise_detalhada.xlsx", mime="application/vnd.ms-excel")
+                st.info(f"""
+                **Resumo do Ajuste:**  
+                xG ponderado: {xg_ponderado:.2f}  
+                Ajuste total (rating/eventos): {ajuste:.2f}  
+                Eventos registados: {len(st.session_state["eventos_live"])}
+                """)
 
-            if st.button("🗑️ Limpar Análise Final"):
-                del st.session_state["analise_final"]
-                st.success("Análise final limpa!")
+        # ---- BOTÃO EXPORTAR DETALHADO ----
+        if st.button("📥 Exportar Excel Detalhado (Live)"):
+            analise_final = st.session_state.get("analise_final", {})
+            if not analise_final:
+                st.error("Ainda não existe análise final. Atualiza a previsão primeiro.")
+            else:
+                base = st.session_state.get('live_base', {})
+                eventos = st.session_state.get("eventos_live", [])
+                xg_2p = analise_final.get("xg_2p")
+                ajuste = analise_final.get("ajuste")
+                xg_ponderado = analise_final.get("xg_ponderado")
+                excel_data = export_detalhado(base, eventos, xg_2p, ajuste, xg_ponderado)
+                st.download_button(
+                    label="📊 Download Excel Detalhado",
+                    data=excel_data,
+                    file_name="analise_detalhada_live.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
 
+        # ---- BOTÃO LIMPAR EVENTOS ----
         if st.button("🗑️ Limpar eventos LIVE"):
             st.session_state["eventos_live"] = []
             st.success("Lista de eventos live limpa!")
+
+        # ---- BOTÃO LIMPAR ANÁLISE FINAL ----
+        if st.button("🗑️ Limpar Análise Final"):
+            if "analise_final" in st.session_state:
+                del st.session_state["analise_final"]
+            st.success("Análise final limpa!")
+
+# =========== FIM ===========
