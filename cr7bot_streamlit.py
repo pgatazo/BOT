@@ -645,7 +645,7 @@ with tab1:
     
     if st.button("🗑️ Limpar Pré-Análise"):
         for key in list(st.session_state.keys()):
-        if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
+            if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
             del st.session_state[key]
     st.success("Pré-análise limpa!")
     
