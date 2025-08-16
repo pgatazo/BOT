@@ -24,11 +24,15 @@ from math import exp, factorial
 st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
 
 # --------- HELPERS NUMÉRICOS / SANEAMENTO ---------
+from typing import Optional
+
 def fmt_num(v, nd: int = 2, dash: str = "—"):
+    """Formata número com nd casas; devolve '—' se None/NaN/Inf ou não conversível."""
     if v is None:
         return dash
     try:
-        x = float(v)
+        x = float(str(v).replace(",", "."))
+        import math
         if math.isnan(x) or math.isinf(x):
             return dash
         return f"{x:.{nd}f}"
@@ -36,6 +40,7 @@ def fmt_num(v, nd: int = 2, dash: str = "—"):
         return dash
 
 def to_float_or_none(v) -> Optional[float]:
+    """Converte para float (aceita strings com vírgulas). None em falha."""
     if v is None:
         return None
     try:
@@ -43,7 +48,8 @@ def to_float_or_none(v) -> Optional[float]:
     except Exception:
         return None
 
-def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
+def sanitize_analysis(d: dict, keys=("xg_1p", "xg_2p", "xg_total")) -> dict:
+    """Garante que certas chaves (se existirem) são floats seguros."""
     if not isinstance(d, dict):
         return {}
     dd = dict(d)
@@ -52,7 +58,7 @@ def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
     return dd
 
 def fmt_any(v, nd: int = 2, dash: str = "—"):
-    """Formata número único ou sequência (lista/tuplo) de números."""
+    """Formata escalar ou sequência de números."""
     if isinstance(v, (list, tuple)):
         if not v:
             return dash
@@ -60,41 +66,48 @@ def fmt_any(v, nd: int = 2, dash: str = "—"):
     return fmt_num(v, nd=nd, dash=dash)
 
 def first_float(v) -> float:
-    """Extrai um float de v (aceita escalar ou 1º elemento de lista/tuplo)."""
+    """Extrai um float de v (escalar ou 1.º elemento de lista/tuplo)."""
     if isinstance(v, (list, tuple)):
         return (to_float_or_none(v[0]) or 0.0) if v else 0.0
     return to_float_or_none(v) or 0.0
 
-# ===== Mercados de golos (usa as PMFs já calculadas) =====
-def prob_over(total_lambda: float, line: float, max_goals: int = 12) -> float:
-    """P( total de golos > line ). Ex.: line=1.5 => 1 - P(0) - P(1)."""
-    import math
-    if line == 0.5:
-        kmax = 0
-    elif line == 1.5:
-        kmax = 1
-    elif line == 2.5:
-        kmax = 2
-    elif line == 3.5:
-        kmax = 3
-    else:
-        kmax = int(math.floor(line))
-    # soma P(0..kmax) via Poisson de lambda=total_lambda
-    s = 0.0
-    lam = max(float(total_lambda), 1e-9)
-    for k in range(kmax + 1):
-        s += math.exp(-lam) * (lam**k) / math.factorial(k)
-    return 1.0 - s
+def odds_from_prob(p: float, eps: float = 1e-9) -> float:
+    """Odd justa a partir de probabilidade (com proteção)."""
+    p = max(float(p), eps)
+    return 1.0 / p
 
-def prob_btts(l_home: float, l_away: float, max_goals: int = 12) -> float:
-    """P(ambas marcam) = 1 - P(casa 0) - P(fora 0) + P(0-0)."""
+# ===== Mercados de golos (usa Poisson do total de golos) =====
+def prob_over(total_lambda: float, line: float) -> float:
+    """
+    P(total de golos > line). Para linhas .5 (ex.: 1.5, 2.5) usa 1 - sum_{k<=floor(line)} P(k).
+    Para linhas inteiras (ex.: 2.0), interpreta como over 2.0 (total > 2.0) => idem.
+    """
     import math
-    l_home = max(float(l_home), 1e-9)
-    l_away = max(float(l_away), 1e-9)
-    p_home_0 = math.exp(-l_home)
-    p_away_0 = math.exp(-l_away)
-    p_00 = math.exp(-(l_home + l_away))
-    return 1.0 - p_home_0 - p_away_0 + p_00
+    lam = max(float(total_lambda), 1e-9)
+
+    # kmax = maior inteiro <= line (funciona para .5 e inteiras)
+    kmax = int(math.floor(line))
+
+    # soma P(0..kmax) via Poisson(lam)
+    s = 0.0
+    for k in range(kmax + 1):
+        # pmf Poisson: e^{-λ} λ^k / k!
+        s += math.exp(-lam) * (lam**k) / math.factorial(k)
+
+    return max(0.0, min(1.0, 1.0 - s))
+
+def prob_btts(l_home: float, l_away: float) -> float:
+    """
+    P(ambas marcam) = 1 - P(casa=0) - P(fora=0) + P(0-0),
+    assumindo golos independentes com Poisson(λ_home) e Poisson(λ_away).
+    """
+    import math
+    lh = max(float(l_home), 1e-9)
+    la = max(float(l_away), 1e-9)
+    p_home_0 = math.exp(-lh)
+    p_away_0 = math.exp(-la)
+    p_00 = math.exp(-(lh + la))
+    return max(0.0, min(1.0, 1.0 - p_home_0 - p_away_0 + p_00))
 
 # --------- AJUSTE METEO + POISSON ---------
 # Meteo: multiplicadores globais (afetam golos esperados e probabilidades)
@@ -108,6 +121,7 @@ METEO_MULT = {
     "Calor extremo": 0.85,
     "Outro": 1.00,
 }
+
 
 import math
 
