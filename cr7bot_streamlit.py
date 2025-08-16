@@ -137,50 +137,51 @@ def hls_player(url: str, height: int = 420):
     """
     components.html(html, height=height, scrolling=False)
 
-# --------- UI SIDEBAR DO PLAYER (podes mover esta secção para onde preferires) ---------
-st.sidebar.header("🎥 Leitor HLS / M3U8")
+# --------- UI PRINCIPAL DO PLAYER (sem sidebar) ---------
+st.subheader("📺 Leitor HLS / M3U8")
 
 if "hls_url" not in st.session_state:
     st.session_state["hls_url"] = None
 
-raw_stream = st.sidebar.text_area(
+raw_stream = st.text_area(
     "Cole a URL .m3u8 OU o conteúdo .m3u8 (pequeno)",
     height=100,
     placeholder="https://servidor/playlist.m3u8 ou #EXTM3U ..."
 )
-uploaded = st.sidebar.file_uploader("…ou carregue ficheiro .m3u / .m3u8", type=["m3u","m3u8"])
+uploaded = st.file_uploader("…ou carregue ficheiro .m3u / .m3u8", type=["m3u","m3u8"])
 
-col_a, col_b = st.sidebar.columns(2)
-with col_a:
+col1, col2 = st.columns(2)
+with col1:
     if st.button("Carregar stream"):
         st.session_state["hls_url"] = parse_m3u_or_url(raw_stream)
-with col_b:
+with col2:
     if st.button("Limpar"):
         st.session_state["hls_url"] = None
 
+# Se foi feito upload de um .m3u/.m3u8, tenta extrair o stream
 if uploaded is not None:
     try:
         content = uploaded.getvalue().decode("utf-8", errors="ignore")
-        # tenta lista de canais .m3u ou conteúdo .m3u8
-        chans = parse_m3u(content)
+        chans = parse_m3u(content)  # tenta formato .m3u (lista)
         if chans:
             st.session_state["hls_url"] = chans[0]["url"]
-            st.sidebar.success(f"Canal carregado: {chans[0]['name']}")
+            st.success(f"Canal carregado: {chans[0]['name']}")
         else:
-            st.session_state["hls_url"] = parse_m3u_or_url(content)
+            st.session_state["hls_url"] = parse_m3u_or_url(content)  # tenta conteúdo .m3u8
             if st.session_state["hls_url"]:
-                st.sidebar.success("Stream extraído do ficheiro.")
+                st.success("Stream extraído do ficheiro.")
             else:
-                st.sidebar.warning("Não foi possível extrair um .m3u8 do ficheiro.")
+                st.warning("Não foi possível extrair um .m3u8 do ficheiro.")
     except Exception as e:
-        st.sidebar.error(f"Erro a ler ficheiro: {e}")
+        st.error(f"Erro a ler ficheiro: {e}")
 
-st.markdown("## 📺 Player")
+# Render do player no corpo principal
 if st.session_state["hls_url"]:
     st.caption(f"Fonte: `{st.session_state['hls_url']}`")
     hls_player(st.session_state["hls_url"], height=420)
 else:
     st.info("Insere uma URL .m3u8 válida ou carrega um ficheiro .m3u/.m3u8 para começar.")
+
 
 # ======== FICHEIROS ========
 
@@ -990,13 +991,12 @@ if "analise_final" in st.session_state:
 
     # Mostrar métricas com formatação segura
     st.markdown(f"### 🟢 Golos Esperados (2ª parte): {fmt_num(analise_final.get('xg_2p'))}")
-    eventos = st.session_state.get("eventos_live", []) or []
     st.info(f"""
-**Resumo do Ajuste:**  
-- xG ponderado: {fmt_num(analise_final.get('xg_ponderado'))}  
-- Ajuste total: {fmt_num(analise_final.get('ajuste'))}  
-- Eventos registados: {len(eventos)}
-""")
+    **Resumo do Ajuste:**  
+    - xG ponderado: {fmt_any(analise_final.get('xg_ponderado'))}  
+    - Ajuste total: {fmt_any(analise_final.get('ajuste'))}  
+    - Eventos registados: {len(st.session_state.get('eventos_live', []))}
+    """)
 
     # Preparar dados para export (valores numéricos válidos)
     xg_2p_val        = to_float_or_none(analise_final.get("xg_2p")) or 0.0
@@ -1008,10 +1008,11 @@ if "analise_final" in st.session_state:
     excel_data = export_detalhado(
         base,
         eventos,
-        xg_2p_val,
-        ajuste_val,
-        xg_ponderado_val
+        first_float(analise_final.get("xg_2p")),
+        first_float(analise_final.get("ajuste")),
+        first_float(analise_final.get("xg_ponderado"))
     )
+
 
     st.download_button(
         label="📥 Download Excel Detalhado (Live)",
