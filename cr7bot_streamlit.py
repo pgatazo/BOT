@@ -708,6 +708,7 @@ if equipa_fora == "Outra (personalizada)":
         extras = ligas_custom.get(liga_escolhida, [])
         equipas_disponiveis = base + [e for e in extras if e not in base]
         equipa_fora = nova_fora
+
       
     if equipa_fora == "Outra (personalizada)":
         nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
