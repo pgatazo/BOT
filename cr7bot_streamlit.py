@@ -1141,8 +1141,12 @@ with tab2:
             Eventos registados: {len(st.session_state["eventos_live"])}
             """)
 
-# ---- ANÁLISE FINAL E EXPORTAÇÃO LIVE ----
-if st.button("Gerar Análise Final"):
+# ---- ANÁLISE FINAL E EXPORTAÇÃO (AGORA DENTRO DA ABA LIVE) ----
+st.markdown("---")
+st.subheader("📦 Análise Final (com base na 1ª parte + eventos)")
+
+btn_disable = 'live_base' not in st.session_state
+if st.button("Gerar Análise Final", disabled=btn_disable):
     if 'live_base' not in st.session_state:
         st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
     else:
@@ -1152,7 +1156,7 @@ if st.button("Gerar Análise Final"):
         )
         st.session_state["analise_final"] = {
             "xg_2p": xg_2p,
-            "ajuste": xg_ponderado if isinstance(ajuste, (list, tuple)) else ajuste,
+            "ajuste": ajuste,
             "xg_ponderado": xg_ponderado
         }
         st.success("✅ Análise final gerada e guardada!")
