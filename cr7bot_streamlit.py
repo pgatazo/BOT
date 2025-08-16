@@ -1086,36 +1086,37 @@ if st.button("Gerar Análise Final"):
 if "analise_final" in st.session_state:
     analise_final = st.session_state["analise_final"] or {}
 
-    # Saneamento: garantir floats (inclui as chaves usadas em baixo)
+    # eventos/base têm de existir ANTES de usar
+    eventos = st.session_state.get("eventos_live", []) or []
+    base = st.session_state.get("live_base", {}) or {}
+
+    # Saneamento: só chaves escalares (não tocar em tuplos/listas)
     analise_final = sanitize_analysis(
         analise_final,
-        keys=("xg_1p", "xg_2p", "xg_total", "xg_ponderado", "ajuste")
+        keys=("xg_1p", "xg_2p", "xg_total")
     )
 
     # Mostrar métricas com formatação segura
     st.markdown(f"### 🟢 Golos Esperados (2ª parte): {fmt_num(analise_final.get('xg_2p'))}")
     st.info(f"""
-    **Resumo do Ajuste:**  
-    - xG ponderado: {fmt_any(analise_final.get('xg_ponderado'))}  
-    - Ajuste total: {fmt_any(analise_final.get('ajuste'))}  
-    - Eventos registados: {len(st.session_state.get('eventos_live', []))}
-    """)
+**Resumo do Ajuste:**  
+- xG ponderado: {fmt_any(analise_final.get('xg_ponderado'))}  
+- Ajuste total: {fmt_any(analise_final.get('ajuste'))}  
+- Eventos registados: {len(eventos)}
+""")
 
-    # Preparar dados para export (valores numéricos válidos)
-    xg_2p_val        = to_float_or_none(analise_final.get("xg_2p")) or 0.0
-    ajuste_val       = to_float_or_none(analise_final.get("ajuste")) or 0.0
-    xg_ponderado_val = to_float_or_none(analise_final.get("xg_ponderado")) or 0.0
-
-    base = st.session_state.get("live_base", {}) or {}
+    # Valores numéricos para export (aceita escalar, lista ou tuplo)
+    xg_2p_val        = first_float(analise_final.get("xg_2p"))
+    ajuste_val       = first_float(analise_final.get("ajuste"))
+    xg_ponderado_val = first_float(analise_final.get("xg_ponderado"))
 
     excel_data = export_detalhado(
         base,
         eventos,
-        first_float(analise_final.get("xg_2p")),
-        first_float(analise_final.get("ajuste")),
-        first_float(analise_final.get("xg_ponderado"))
+        xg_2p_val,
+        ajuste_val,
+        xg_ponderado_val
     )
-
 
     st.download_button(
         label="📥 Download Excel Detalhado (Live)",
