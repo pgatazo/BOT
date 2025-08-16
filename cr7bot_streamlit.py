@@ -18,6 +18,7 @@ import streamlit.components.v1 as components
 from html import escape  # sanitização de mensagens no chat
 import math
 from typing import Optional
+from math import exp, factorial
 
 # --------- CONFIG DA PÁGINA (1º call do Streamlit) ---------
 st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
@@ -49,7 +50,7 @@ def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
     for k in keys:
         dd[k] = to_float_or_none(dd.get(k))
     return dd
-    
+
 def fmt_any(v, nd: int = 2, dash: str = "—"):
     """Formata número único ou sequência (lista/tuplo) de números."""
     if isinstance(v, (list, tuple)):
@@ -61,9 +62,43 @@ def fmt_any(v, nd: int = 2, dash: str = "—"):
 def first_float(v) -> float:
     """Extrai um float de v (aceita escalar ou 1º elemento de lista/tuplo)."""
     if isinstance(v, (list, tuple)):
-        return to_float_or_none(v[0]) or 0.0 if v else 0.0
+        return (to_float_or_none(v[0]) or 0.0) if v else 0.0
     return to_float_or_none(v) or 0.0
 
+# --------- AJUSTE METEO + POISSON ---------
+# Meteo: multiplicadores globais (afetam golos esperados e probabilidades)
+METEO_MULT = {
+    "Sol": 1.00,
+    "Nublado": 0.98,
+    "Chuva": 0.88,
+    "Vento": 0.90,
+    "Frio": 0.92,
+    "Calor": 0.90,
+    "Calor extremo": 0.85,
+    "Outro": 1.00,
+}
+
+def pois_pmf(k: int, lam: float) -> float:
+    """Probabilidade de marcar exatamente k golos (Poisson)."""
+    lam = max(lam, 1e-6)
+    return exp(-lam) * (lam**k) / factorial(k)
+
+def poisson_outcome_probs(l_home: float, l_away: float, max_goals: int = 10):
+    """Probabilidades de vitória Casa / Empate / Fora via Poisson."""
+    p_home = p_draw = p_away = 0.0
+    for hg in range(max_goals + 1):
+        ph = pois_pmf(hg, l_home)
+        for ag in range(max_goals + 1):
+            pa = pois_pmf(ag, l_away)
+            p = ph * pa
+            if hg > ag:
+                p_home += p
+            elif hg == ag:
+                p_draw += p
+            else:
+                p_away += p
+    s = max(1e-12, p_home + p_draw + p_away)
+    return p_home/s, p_draw/s, p_away/s
 
 # --------- PARSER DE STREAMS ---------
 def parse_m3u_or_url(raw: str) -> Optional[str]:
@@ -82,7 +117,7 @@ def parse_m3u_or_url(raw: str) -> Optional[str]:
                 return line
     return None
 
-# ======== LEITOR M3U/M3U8 - FUNÇÕES AUXILIARES (definidas ANTES de usar) ========
+# ======== LEITOR M3U/M3U8 - FUNÇÕES AUXILIARES ========
 M3U_ENTRY_RE = re.compile(
     r'#EXTINF:-?\d+.*?,(?P<name>.+)\n(?P<url>https?://[^\s]+)',
     re.IGNORECASE
@@ -169,6 +204,7 @@ def load_favs() -> dict:
         except Exception:
             return {}
     return {}
+
 def save_favs(data: dict) -> None:
     tmp = FAVORITES_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -278,7 +314,6 @@ with left:
                     st.success(f"Adicionado a '{cat}'.")
                 else:
                     st.info("Esse canal já existe na categoria.")
-
     else:
         st.info("Sem lista de canais carregada. Carrega um .m3u ou cola conteúdo no campo acima.")
 
@@ -325,9 +360,8 @@ if st.session_state["hls_url"]:
     hls_player(st.session_state["hls_url"], height=420)
 else:
     st.info("Insere uma URL .m3u8 válida, carrega uma lista .m3u e escolhe um canal, ou usa os favoritos.")
-
-# ======== FICHEIROS ========
-
+    
+    # ======== FICHEIROS ========
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
 PESOS_FILE = "pesos_personalizados.json"
@@ -353,16 +387,13 @@ def hash_pwd(pwd):
 
 def load_users():
     if not os.path.exists(USERS_FILE):
-        base_users = {
-            "paulo": hash_pwd("damas2024"),
-            "admin": hash_pwd("admin123")
-        }
+        base_users = {"paulo": hash_pwd("damas2024"), "admin": hash_pwd("admin123")}
         safe_json_write(USERS_FILE, base_users)
     with open(USERS_FILE, "r") as f:
         return json.load(f)
 USERS = load_users()
 
-# Função para gerir presença online dos utilizadores
+# Presença online
 def set_online(username, online=True):
     data = {}
     if os.path.exists(ONLINE_FILE):
@@ -398,10 +429,8 @@ if "login_success" not in st.session_state or not st.session_state["login_succes
 else:
     set_online(st.session_state['logged_user'], True)
 
-# ======== TÍTULO + LEITOR (UI usa as funções já definidas) ========
+# ======== TÍTULO ========
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
-
-
 
 # ======== FUNÇÕES UTILITÁRIAS ========
 def kelly_criterion(prob, odd, banca, fracao=1):
@@ -410,7 +439,8 @@ def kelly_criterion(prob, odd, banca, fracao=1):
     f = ((b * prob - q) / b) * fracao
     return max(0, banca * f)
 
-def calc_ev(p, o): return round(o * p - 1, 2)
+def calc_ev(p, o):
+    return round(o * p - 1, 2)
 
 def to_excel(df, distrib, resumo, pesos_df):
     output = BytesIO()
@@ -463,12 +493,10 @@ def load_chat():
             return json.load(f)
     return []
 
-
 def export_detalhado(base_inputs, eventos, xg_2p=None, ajuste=None, xg_ponderado=None):
     """
     Cria Excel com uma única sheet 'Detalhe_Analise' mostrando o processo todo.
     """
-
     pesos = load_pesos()
     linhas = []
     acumulado = xg_ponderado if xg_ponderado is not None else 1.0
@@ -566,8 +594,6 @@ def export_detalhado(base_inputs, eventos, xg_2p=None, ajuste=None, xg_ponderado
         df.to_excel(writer, sheet_name="Detalhe_Analise", index=False)
     return output.getvalue()
 
-
-
 # ======== LISTAS ========
 formacoes_lista = [
     "4-4-2", "4-3-3", "4-2-3-1", "3-5-2", "3-4-3", "5-3-2", "4-1-4-1", "4-5-1",
@@ -583,7 +609,7 @@ tipos_troca = [
 ]
 posicoes_lista = ["GR", "Defesa", "Médio", "Avançado"]
 importancias_lista = ["Peça chave", "Importante", "Normal"]
-meteos_lista = ["Sol", "Chuva", "Nublado", "Vento", "Frio", "Outro"]
+meteos_lista = ["Sol", "Nublado", "Chuva", "Vento", "Frio", "Calor", "Calor extremo", "Outro"]
 
 # ======== PAINEL DE PESOS (ESQUERDA) ========
 if "pesos" not in st.session_state:
@@ -595,20 +621,12 @@ for i, fator in enumerate(["Motivação", "Árbitro", "Pressão", "Importância"
     key_c = f"peso_{fator.lower().replace('ç','c').replace('ã','a').replace('í','i').replace('á','a').replace('ú','u').replace('ó','o').replace('é','e')}_c_{i}"
     key_f = f"peso_{fator.lower().replace('ç','c').replace('ã','a').replace('í','i').replace('á','a').replace('ú','u').replace('ó','o').replace('é','e')}_f_{i}"
     pesos[f"{fator}_C"] = st.sidebar.number_input(
-        f"Peso {fator} CASA",
-        min_value=-0.1,
-        max_value=0.1,
-        value=pesos.get(f"{fator}_C", 0.01),
-        step=0.001,
-        key=key_c
+        f"Peso {fator} CASA", min_value=-0.1, max_value=0.1,
+        value=pesos.get(f"{fator}_C", 0.01), step=0.001, key=key_c
     )
     pesos[f"{fator}_F"] = st.sidebar.number_input(
-        f"Peso {fator} FORA",
-        min_value=-0.1,
-        max_value=0.1,
-        value=pesos.get(f"{fator}_F", 0.01),
-        step=0.001,
-        key=key_f
+        f"Peso {fator} FORA", min_value=-0.1, max_value=0.1,
+        value=pesos.get(f"{fator}_F", 0.01), step=0.001, key=key_f
     )
 
 # ======== LIGAS E EQUIPAS ========
@@ -630,7 +648,7 @@ ligas_fixas = {
         "Las Palmas", "Mallorca", "Alaves", "Rayo Vallecano", "Almeria", "Girona", "Cadiz"
     ]
 }
-ligas_custom = custom_data.get("ligas", {})
+ligas_custom = custom_data.get("ligas", {})  # dict: liga -> [equipas personalizadas]
 todas_ligas = list(ligas_fixas.keys()) + list(ligas_custom.keys()) + ["Outra (nova liga personalizada)"]
 
 # ======== TABS ========
@@ -642,6 +660,8 @@ with tab1:
 
     st.header("Análise Pré-Jogo (com fatores avançados)")
     liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
+
+    # Criar nova liga personalizada
     if liga_escolhida == "Outra (nova liga personalizada)":
         nova_liga = st.text_input("Nome da nova liga personalizada:", key="nova_liga")
         if nova_liga:
@@ -653,27 +673,38 @@ with tab1:
             else:
                 st.info("Esta liga já existe.")
         st.stop()
-    if liga_escolhida in ligas_fixas:
-        equipas_disponiveis = ligas_fixas[liga_escolhida]
-    elif liga_escolhida in ligas_custom:
-        equipas_disponiveis = ligas_custom[liga_escolhida]
-    else:
-        equipas_disponiveis = []
-    if liga_escolhida in ligas_custom:
-        equipa_nova = st.text_input(f"Adicionar nova equipa à '{liga_escolhida}':", key="equipa_nova")
-        if equipa_nova:
-            if equipa_nova not in equipas_disponiveis:
-                equipas_disponiveis.append(equipa_nova)
-                ligas_custom[liga_escolhida] = equipas_disponiveis
-                custom_data["ligas"] = ligas_custom
-                save_custom(custom_data)
-                st.success(f"Equipa '{equipa_nova}' adicionada à liga '{liga_escolhida}'!")
-            else:
-                st.info("Esta equipa já existe nesta liga.")
 
+    # Construir lista de equipas: base + personalizadas DA MESMA LIGA
+    equipas_disponiveis_base = ligas_fixas.get(liga_escolhida, [])
+    equipas_pers = ligas_custom.get(liga_escolhida, [])
+    # merge sem duplicados mantendo ordem
+    seen = set()
+    equipas_disponiveis = []
+    for x in (equipas_disponiveis_base + equipas_pers):
+        if x not in seen:
+            equipas_disponiveis.append(x)
+            seen.add(x)
+
+    # Campo para adicionar equipa à liga SELECIONADA (sempre guarda nessa liga)
+    equipa_nova = st.text_input(f"Adicionar nova equipa à '{liga_escolhida}':", key="equipa_nova")
+    if equipa_nova:
+        if equipa_nova not in equipas_disponiveis:
+            equipas_disponiveis.append(equipa_nova)
+            # guardar SEMPRE dentro da liga selecionada
+            ligas_custom.setdefault(liga_escolhida, [])
+            if equipa_nova not in ligas_custom[liga_escolhida]:
+                ligas_custom[liga_escolhida].append(equipa_nova)
+            custom_data["ligas"] = ligas_custom
+            save_custom(custom_data)
+            st.success(f"Equipa '{equipa_nova}' adicionada à liga '{liga_escolhida}'!")
+        else:
+            st.info("Esta equipa já existe nesta liga.")
+
+    # Seleção de equipas (com opção personalizada inline)
+    extra_opt = ["Outra (personalizada)"] if "Outra (personalizada)" not in equipas_disponiveis else []
     equipa_casa = st.selectbox(
         "Equipa da CASA",
-        equipas_disponiveis + (["Outra (personalizada)"] if "Outra (personalizada)" not in equipas_disponiveis else []),
+        equipas_disponiveis + extra_opt,
         key="equipa_casa"
     )
     equipa_fora = st.selectbox(
@@ -681,42 +712,36 @@ with tab1:
         [e for e in equipas_disponiveis if e != equipa_casa] + (["Outra (personalizada)"] if equipa_casa != "Outra (personalizada)" and "Outra (personalizada)" not in equipas_disponiveis else []),
         key="equipa_fora"
     )
+
+    # Se CASA personalizada -> guardar na liga selecionada
     if equipa_casa == "Outra (personalizada)":
         nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
         if nova_casa:
             if nova_casa not in equipas_disponiveis:
                 equipas_disponiveis.append(nova_casa)
-                # 🔄 GUARDA SEMPRE, mesmo em ligas fixas
-                if liga_escolhida in ligas_fixas:
-                    if "Custom_Global" not in ligas_custom:
-                        ligas_custom["Custom_Global"] = []
-                    ligas_custom["Custom_Global"].append(nova_casa)
-                    st.info("Equipa guardada em 'Custom_Global' para uso futuro.")
-                else:
-                    ligas_custom[liga_escolhida] = equipas_disponiveis
+                ligas_custom.setdefault(liga_escolhida, [])
+                if nova_casa not in ligas_custom[liga_escolhida]:
+                    ligas_custom[liga_escolhida].append(nova_casa)
                 custom_data["ligas"] = ligas_custom
                 save_custom(custom_data)
-                st.success(f"Equipa '{nova_casa}' adicionada às opções!")
+                st.success(f"Equipa '{nova_casa}' adicionada à liga '{liga_escolhida}'!")
             equipa_casa = nova_casa
-      
+
+    # Se FORA personalizada -> guardar na liga selecionada
     if equipa_fora == "Outra (personalizada)":
         nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
         if nova_fora:
             if nova_fora not in equipas_disponiveis:
                 equipas_disponiveis.append(nova_fora)
-                # 🔄 GUARDA SEMPRE, mesmo em ligas fixas
-                if liga_escolhida in ligas_fixas:
-                    if "Custom_Global" not in ligas_custom:
-                        ligas_custom["Custom_Global"] = []
-                    ligas_custom["Custom_Global"].append(nova_fora)
-                    st.info("Equipa guardada em 'Custom_Global' para uso futuro.")
-                else:
-                    ligas_custom[liga_escolhida] = equipas_disponiveis
+                ligas_custom.setdefault(liga_escolhida, [])
+                if nova_fora not in ligas_custom[liga_escolhida]:
+                    ligas_custom[liga_escolhida].append(nova_fora)
                 custom_data["ligas"] = ligas_custom
                 save_custom(custom_data)
-                st.success(f"Equipa '{nova_fora}' adicionada às opções!")
+                st.success(f"Equipa '{nova_fora}' adicionada à liga '{liga_escolhida}'!")
             equipa_fora = nova_fora
 
+    # ---- Odds & banca
     st.subheader("Odds da Casa de Apostas (1X2)")
     col_odds1, col_odds2, col_odds3 = st.columns(3)
     with col_odds1:
@@ -729,6 +754,7 @@ with tab1:
     st.info(f"Soma odds casa de apostas: **{soma_odds:.2f}**")
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
 
+    # ---- Formações
     st.subheader("Formações e Estratégias")
     colf1, colf2 = st.columns(2)
     with colf1:
@@ -738,14 +764,17 @@ with tab1:
         form_fora = st.selectbox("Formação inicial FORA", formacoes_lista, key="form_fora_pre")
         tipo_form_fora = st.selectbox("Abordagem (FORA)", tipos_formacao, key="tipo_form_fora_pre")
 
+    # ---- Titulares
     st.subheader("Titulares disponíveis")
     titulares_casa = st.number_input("Quantos titulares disponíveis na CASA? (0-11)", 0, 11, 11, key="titulares_casa")
     titulares_fora = st.number_input("Quantos titulares disponíveis na FORA? (0-11)", 0, 11, 11, key="titulares_fora")
 
+    # ---- Meteo
     st.subheader("Meteorologia e Condições Especiais")
     periodo_jogo = st.selectbox("Quando se realiza o jogo?", ["Dia", "Noite"], key="periodo_jogo")
     meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
 
+    # ---- Árbitro
     st.subheader("Árbitro e Tendência de Cartões")
     col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
     with col_arbitro1:
@@ -755,6 +784,7 @@ with tab1:
     with col_arbitro3:
         media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
 
+    # ---- Motivação, pressão, desgaste, viagem
     st.subheader("Motivação e Condições Especiais (CASA e FORA)")
     col_casa, col_fora = st.columns(2)
     with col_casa:
@@ -807,7 +837,7 @@ with tab1:
         }
         st.success("Totais confirmados!")
 
-    # ===================== GERAR ANÁLISE E ODDS JUSTA =====================
+# ===================== GERAR ANÁLISE E ODDS JUSTA =====================
 if st.button("Gerar Análise e Odds Justa"):
 
     def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
@@ -837,25 +867,36 @@ if st.button("Gerar Análise e Odds Justa"):
     ajuste_total_casa = form_aj_casa * tipo_aj_casa * tit_aj_casa * motiv_aj_casa * arb_aj_casa * press_aj_casa * imp_aj_casa * des_aj_casa * viag_aj_casa
     ajuste_total_fora = form_aj_fora * tipo_aj_fora * tit_aj_fora * motiv_aj_fora * arb_aj_fora * press_aj_fora * imp_aj_fora * des_aj_fora * viag_aj_fora
 
-    prob_casa = media_marcados_casa / (media_marcados_casa + media_marcados_fora + 1e-7) if (media_marcados_casa + media_marcados_fora + 1e-7) else 0
-    prob_fora = media_marcados_fora / (media_marcados_casa + media_marcados_fora + 1e-7) if (media_marcados_casa + media_marcados_fora + 1e-7) else 0
-    prob_empate = 1 - (prob_casa + prob_fora)
-    prob_casa_aj = prob_casa * ajuste_total_casa
-    prob_fora_aj = prob_fora * ajuste_total_fora
-    prob_empate_aj = max(1 - (prob_casa_aj + prob_fora_aj), 0.01)
-    total_prob_aj = prob_casa_aj + prob_empate_aj + prob_fora_aj
-    prob_casa_aj, prob_empate_aj, prob_fora_aj = [p/total_prob_aj for p in [prob_casa_aj, prob_empate_aj, prob_fora_aj]]
+    # ===================== NOVO BLOCO: METEO + POISSON =====================
+    meteo_factor = METEO_MULT.get(meteo, 1.00)
 
-    odd_justa_casa = 1 / (prob_casa_aj + 1e-7)
-    odd_justa_empate = 1 / (prob_empate_aj + 1e-7)
-    odd_justa_fora = 1 / (prob_fora_aj + 1e-7)
-    ev_casa = calc_ev(prob_casa_aj, odd_casa)
+    # Lambdas (golos esperados) com base nas médias + ajustes + Meteo
+    # (Se quiseres, podes ponderar com H2H ou usar médias ponderadas)
+    l_home_base = max(0.1, (media_marcados_casa + media_sofridos_fora) / 2)
+    l_away_base = max(0.1, (media_marcados_fora + media_sofridos_casa) / 2)
+
+    lh = l_home_base * ajuste_total_casa * meteo_factor
+    la = l_away_base * ajuste_total_fora * meteo_factor
+
+    # Probabilidades 1X2 via Poisson
+    prob_casa_aj, prob_empate_aj, prob_fora_aj = poisson_outcome_probs(lh, la, max_goals=10)
+
+    # Odds justas
+    eps = 1e-9
+    odd_justa_casa   = 1.0 / max(eps, prob_casa_aj)
+    odd_justa_empate = 1.0 / max(eps, prob_empate_aj)
+    odd_justa_fora   = 1.0 / max(eps, prob_fora_aj)
+
+    # ===================== EV / KELLY =====================
+    ev_casa   = calc_ev(prob_casa_aj, odd_casa)
     ev_empate = calc_ev(prob_empate_aj, odd_empate)
-    ev_fora = calc_ev(prob_fora_aj, odd_fora)
-    stake_casa = kelly_criterion(prob_casa_aj, odd_casa, banca)
-    stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
-    stake_fora = kelly_criterion(prob_fora_aj, odd_fora, banca)
+    ev_fora   = calc_ev(prob_fora_aj, odd_fora)
 
+    stake_casa   = kelly_criterion(prob_casa_aj, odd_casa, banca)
+    stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
+    stake_fora   = kelly_criterion(prob_fora_aj, odd_fora, banca)
+
+    # ===================== TABELA DE RESULTADOS =====================
     df_res = pd.DataFrame({
         "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
         "Odd": [odd_casa, odd_empate, odd_fora],
@@ -863,24 +904,31 @@ if st.button("Gerar Análise e Odds Justa"):
         "Prob. (%)": [round(prob_casa_aj*100,1), round(prob_empate_aj*100,1), round(prob_fora_aj*100,1)],
         "EV": [ev_casa, ev_empate, ev_fora],
         "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
-        "Valor": ["✅" if ev>0 and stake>0 else "❌" for ev,stake in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
+        "Valor": ["✅" if ev>0 and stake>0 else "❌"
+                  for ev, stake in zip([ev_casa, ev_empate, ev_fora],
+                                       [stake_casa, stake_empate, stake_fora])]
     })
 
+    # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
     dist_ajustes = [
-        ["Formação", form_aj_casa, form_aj_fora],
-        ["Abordagem", tipo_aj_casa, tipo_aj_fora],
-        ["Titulares", tit_aj_casa, tit_aj_fora],
-        ["Motivação", motiv_aj_casa, motiv_aj_fora],
-        ["Árbitro", arb_aj_casa, arb_aj_fora],
-        ["Pressão", press_aj_casa, press_aj_fora],
-        ["Importância", imp_aj_casa, imp_aj_fora],
-        ["Desgaste", des_aj_casa, des_aj_fora],
-        ["Viagem", viag_aj_casa, viag_aj_fora],
-        ["AJUSTE TOTAL", ajuste_total_casa, ajuste_total_fora],
-        ["Probabilidade ajustada", prob_casa_aj, prob_fora_aj]
+        ["Formação",      form_aj_casa,  form_aj_fora],
+        ["Abordagem",     tipo_aj_casa,  tipo_aj_fora],
+        ["Titulares",     tit_aj_casa,   tit_aj_fora],
+        ["Motivação",     motiv_aj_casa, motiv_aj_fora],
+        ["Árbitro",       arb_aj_casa,   arb_aj_fora],
+        ["Pressão",       press_aj_casa, press_aj_fora],
+        ["Importância",   imp_aj_casa,   imp_aj_fora],
+        ["Desgaste",      des_aj_casa,   des_aj_fora],
+        ["Viagem",        viag_aj_casa,  viag_aj_fora],
+        ["AJUSTE TOTAL",  ajuste_total_casa, ajuste_total_fora],
+        ["λ (golos) aj.", lh, la],
+        ["Meteo factor",  meteo_factor,   meteo_factor],
+        ["Prob. CASA",    prob_casa_aj,   ""],
+        ["Prob. FORA",    "",             prob_fora_aj],
     ]
     distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
+    # ===================== RESUMO =====================
     resumo_dict = {
         "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
         "Formação CASA": [form_casa], "Formação FORA": [form_fora],
@@ -895,7 +943,8 @@ if st.button("Gerar Análise e Odds Justa"):
         "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
         "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
         "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
-        "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora]
+        "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora],
+        "λ CASA (aj.)": [lh], "λ FORA (aj.)": [la], "Meteo factor": [meteo_factor],
     }
     resumo_df = pd.DataFrame(resumo_dict)
     pesos_df = pd.DataFrame([pesos])
@@ -911,7 +960,6 @@ if st.button("Gerar Análise e Odds Justa"):
         "ajuste": (ajuste_total_casa, ajuste_total_fora),
         "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
     }
-
 
 # ===================== MOSTRAR RESULTADOS (fora do botão) =====================
 if "analise_final" in st.session_state:
@@ -939,8 +987,6 @@ if "analise_final" in st.session_state:
     )
 
     st.success("Análise pronta! Consulta apostas recomendadas, detalhes dos ajustes e exporta tudo para Excel.")
-
-
 
 # ======== BLOCO CENTRAL (LIVE/2ª PARTE) ========
 with tab2:
@@ -1007,11 +1053,7 @@ with tab2:
         tipo_form_ev = st.selectbox("Nova abordagem", tipos_formacao, key="tipo_form_ev")
 
     if st.button("Adicionar evento LIVE"):
-        evento = {
-            "tipo": tipo_evento,
-            "equipa": equipa_evento,
-            "detalhes": detalhes_evento
-        }
+        evento = {"tipo": tipo_evento, "equipa": equipa_evento, "detalhes": detalhes_evento}
         if posicao_ev: evento["posicao"] = posicao_ev
         if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
         if nova_form_ev: evento["nova_formacao"] = nova_form_ev
@@ -1066,7 +1108,7 @@ with tab2:
             Eventos registados: {len(st.session_state["eventos_live"])}
             """)
 
-    # ---- ANÁLISE FINAL E EXPORTAÇÃO LIVE ----
+# ---- ANÁLISE FINAL E EXPORTAÇÃO LIVE ----
 if st.button("Gerar Análise Final"):
     if 'live_base' not in st.session_state:
         st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
@@ -1077,7 +1119,7 @@ if st.button("Gerar Análise Final"):
         )
         st.session_state["analise_final"] = {
             "xg_2p": xg_2p,
-            "ajuste": ajuste,
+            "ajuste": xg_ponderado if isinstance(ajuste, (list, tuple)) else ajuste,
             "xg_ponderado": xg_ponderado
         }
         st.success("✅ Análise final gerada e guardada!")
@@ -1110,13 +1152,7 @@ if "analise_final" in st.session_state:
     ajuste_val       = first_float(analise_final.get("ajuste"))
     xg_ponderado_val = first_float(analise_final.get("xg_ponderado"))
 
-    excel_data = export_detalhado(
-        base,
-        eventos,
-        xg_2p_val,
-        ajuste_val,
-        xg_ponderado_val
-    )
+    excel_data = export_detalhado(base, eventos, xg_2p_val, ajuste_val, xg_ponderado_val)
 
     st.download_button(
         label="📥 Download Excel Detalhado (Live)",
@@ -1131,7 +1167,6 @@ if st.button("🗑️ Limpar eventos LIVE"):
     st.success("Lista de eventos live limpa!")
 
 st.markdown('</div>', unsafe_allow_html=True)
-
 
 # ====== AUTOREFRESH DO CHAT ======
 st_autorefresh(interval=5000, key="chatrefresh")
