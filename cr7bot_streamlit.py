@@ -16,9 +16,56 @@ import re
 from urllib.parse import urlparse
 import streamlit.components.v1 as components
 from html import escape  # sanitização de mensagens no chat
+import math
+from typing import Optional
 
 # --------- CONFIG DA PÁGINA (1º call do Streamlit) ---------
 st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
+
+# --------- HELPERS NUMÉRICOS / SANEAMENTO ---------
+def fmt_num(v, nd: int = 2, dash: str = "—"):
+    if v is None:
+        return dash
+    try:
+        x = float(v)
+        if math.isnan(x) or math.isinf(x):
+            return dash
+        return f"{x:.{nd}f}"
+    except Exception:
+        return dash
+
+def to_float_or_none(v) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        return float(str(v).replace(",", ".").strip())
+    except Exception:
+        return None
+
+def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
+    if not isinstance(d, dict):
+        return {}
+    dd = dict(d)
+    for k in keys:
+        dd[k] = to_float_or_none(dd.get(k))
+    return dd
+
+# --------- PARSER DE STREAMS ---------
+def parse_m3u_or_url(raw: str) -> Optional[str]:
+    """Aceita: URL direto .m3u8/.mpd ou conteúdo M3U8 (pequeno) e extrai o 1.º stream."""
+    if not raw:
+        return None
+    s = raw.strip()
+    # Se já é uma URL HLS/DASH
+    if s.lower().startswith(("http://","https://")) and (".m3u8" in s.lower() or ".mpd" in s.lower()):
+        return s
+    # Se o user colou o CONTEÚDO do .m3u8 (pequeno), tenta apanhar a 1.ª linha http(s) com .m3u8
+    if "#EXTM3U" in s:
+        for line in s.splitlines():
+            line = line.strip()
+            if line.lower().startswith(("http://","https://")) and ".m3u8" in line.lower():
+                return line
+    return None
 
 # ======== LEITOR M3U/M3U8 - FUNÇÕES AUXILIARES (definidas ANTES de usar) ========
 M3U_ENTRY_RE = re.compile(
@@ -42,6 +89,10 @@ def looks_safe_m3u8(url: str) -> bool:
 
 def hls_player(url: str, height: int = 420):
     """Renderiza um player HLS com hls.js dentro do Streamlit."""
+    if not url:
+        st.info("Cole uma URL HLS (.m3u8) válida ou carregue um ficheiro M3U/M3U8.")
+        return
+
     safe_url = url.replace('"','%22').replace("'", "%27")
     html = f"""
     <div style="position:relative;width:100%;max-width:1000px;margin:0 auto;">
@@ -66,7 +117,7 @@ def hls_player(url: str, height: int = 420):
         }} else if (video.canPlayType('application/vnd.apple.mpegurl')) {{
           video.src = url;
         }} else {{
-          video.outerHTML = "<div>HLS não suportado neste browser.</div>";
+          video.outerHTML = "<div style='color:#fff;padding:8px;font-family:system-ui'>HLS não suportado neste browser.</div>";
         }}
       }}
       async function pip() {{
@@ -74,7 +125,6 @@ def hls_player(url: str, height: int = 420):
           if (document.pictureInPictureElement) {{
             await document.exitPictureInPicture();
           }} else {{
-            if (!video.src) return;
             await video.requestPictureInPicture();
           }}
         }} catch(e){{ console.log(e); }}
@@ -85,10 +135,55 @@ def hls_player(url: str, height: int = 420):
       start();
     </script>
     """
-    components.html(html, height=height)
+    components.html(html, height=height, scrolling=False)
 
+# --------- UI SIDEBAR DO PLAYER (podes mover esta secção para onde preferires) ---------
+st.sidebar.header("🎥 Leitor HLS / M3U8")
+
+if "hls_url" not in st.session_state:
+    st.session_state["hls_url"] = None
+
+raw_stream = st.sidebar.text_area(
+    "Cole a URL .m3u8 OU o conteúdo .m3u8 (pequeno)",
+    height=100,
+    placeholder="https://servidor/playlist.m3u8 ou #EXTM3U ..."
+)
+uploaded = st.sidebar.file_uploader("…ou carregue ficheiro .m3u / .m3u8", type=["m3u","m3u8"])
+
+col_a, col_b = st.sidebar.columns(2)
+with col_a:
+    if st.button("Carregar stream"):
+        st.session_state["hls_url"] = parse_m3u_or_url(raw_stream)
+with col_b:
+    if st.button("Limpar"):
+        st.session_state["hls_url"] = None
+
+if uploaded is not None:
+    try:
+        content = uploaded.getvalue().decode("utf-8", errors="ignore")
+        # tenta lista de canais .m3u ou conteúdo .m3u8
+        chans = parse_m3u(content)
+        if chans:
+            st.session_state["hls_url"] = chans[0]["url"]
+            st.sidebar.success(f"Canal carregado: {chans[0]['name']}")
+        else:
+            st.session_state["hls_url"] = parse_m3u_or_url(content)
+            if st.session_state["hls_url"]:
+                st.sidebar.success("Stream extraído do ficheiro.")
+            else:
+                st.sidebar.warning("Não foi possível extrair um .m3u8 do ficheiro.")
+    except Exception as e:
+        st.sidebar.error(f"Erro a ler ficheiro: {e}")
+
+st.markdown("## 📺 Player")
+if st.session_state["hls_url"]:
+    st.caption(f"Fonte: `{st.session_state['hls_url']}`")
+    hls_player(st.session_state["hls_url"], height=420)
+else:
+    st.info("Insere uma URL .m3u8 válida ou carrega um ficheiro .m3u/.m3u8 para começar.")
 
 # ======== FICHEIROS ========
+
 USERS_FILE = "users.json"
 CUSTOM_FILE = "ligas_e_equipas_custom.json"
 PESOS_FILE = "pesos_personalizados.json"
