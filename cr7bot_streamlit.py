@@ -65,6 +65,37 @@ def first_float(v) -> float:
         return (to_float_or_none(v[0]) or 0.0) if v else 0.0
     return to_float_or_none(v) or 0.0
 
+# ===== Mercados de golos (usa as PMFs já calculadas) =====
+def prob_over(total_lambda: float, line: float, max_goals: int = 12) -> float:
+    """P( total de golos > line ). Ex.: line=1.5 => 1 - P(0) - P(1)."""
+    import math
+    if line == 0.5:
+        kmax = 0
+    elif line == 1.5:
+        kmax = 1
+    elif line == 2.5:
+        kmax = 2
+    elif line == 3.5:
+        kmax = 3
+    else:
+        kmax = int(math.floor(line))
+    # soma P(0..kmax) via Poisson de lambda=total_lambda
+    s = 0.0
+    lam = max(float(total_lambda), 1e-9)
+    for k in range(kmax + 1):
+        s += math.exp(-lam) * (lam**k) / math.factorial(k)
+    return 1.0 - s
+
+def prob_btts(l_home: float, l_away: float, max_goals: int = 12) -> float:
+    """P(ambas marcam) = 1 - P(casa 0) - P(fora 0) + P(0-0)."""
+    import math
+    l_home = max(float(l_home), 1e-9)
+    l_away = max(float(l_away), 1e-9)
+    p_home_0 = math.exp(-l_home)
+    p_away_0 = math.exp(-l_away)
+    p_00 = math.exp(-(l_home + l_away))
+    return 1.0 - p_home_0 - p_away_0 + p_00
+
 # --------- AJUSTE METEO + POISSON ---------
 # Meteo: multiplicadores globais (afetam golos esperados e probabilidades)
 METEO_MULT = {
@@ -942,7 +973,7 @@ if st.button("Gerar Análise e Odds Justa"):
     odd_justa_empate = 1.0 / max(eps, prob_empate_aj)
     odd_justa_fora   = 1.0 / max(eps, prob_fora_aj)
 
-    # ===================== EV / KELLY =====================
+        # ===================== EV / KELLY =====================
     ev_casa   = calc_ev(prob_casa_aj, odd_casa)
     ev_empate = calc_ev(prob_empate_aj, odd_empate)
     ev_fora   = calc_ev(prob_fora_aj, odd_fora)
@@ -951,7 +982,7 @@ if st.button("Gerar Análise e Odds Justa"):
     stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
     stake_fora   = kelly_criterion(prob_fora_aj, odd_fora, banca)
 
-    # ===================== TABELA DE RESULTADOS =====================
+    # ===================== TABELA 1X2 =====================
     df_res = pd.DataFrame({
         "Aposta": ["Vitória CASA", "Empate", "Vitória FORA"],
         "Odd": [odd_casa, odd_empate, odd_fora],
@@ -959,12 +990,38 @@ if st.button("Gerar Análise e Odds Justa"):
         "Prob. (%)": [round(prob_casa_aj*100,1), round(prob_empate_aj*100,1), round(prob_fora_aj*100,1)],
         "EV": [ev_casa, ev_empate, ev_fora],
         "Stake (€)": [round(stake_casa,2), round(stake_empate,2), round(stake_fora,2)],
-        "Valor": ["✅" if ev>0 and stake>0 else "❌"
-                  for ev, stake in zip([ev_casa, ev_empate, ev_fora],
-                                       [stake_casa, stake_empate, stake_fora])]
+        "Valor": ["✅" if ev>0 and stv>0 else "❌"
+                  for ev, stv in zip([ev_casa, ev_empate, ev_fora],
+                                     [stake_casa, stake_empate, stake_fora])]
     })
 
-        # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
+    # ===================== MERCADOS OVER/BTTS (MATCH) =====================
+    total_lambda = lh + la
+    p_over15 = prob_over(total_lambda, 1.5)
+    p_over25 = prob_over(total_lambda, 2.5)
+    p_btts   = prob_btts(lh, la)
+
+    extra_markets = pd.DataFrame({
+        "Aposta": ["Over 1.5 (Match)", "Over 2.5 (Match)", "BTTS (Match)"],
+        "Odd": ["—", "—", "—"],
+        "Odd Justa": [
+            round(1/max(1e-9, p_over15), 2),
+            round(1/max(1e-9, p_over25), 2),
+            round(1/max(1e-9, p_btts),   2),
+        ],
+        "Prob. (%)": [
+            round(p_over15*100, 1),
+            round(p_over25*100, 1),
+            round(p_btts*100,   1),
+        ],
+        "EV": ["—", "—", "—"],
+        "Stake (€)": ["—", "—", "—"],
+        "Valor": ["", "", ""],
+    })
+
+    df_res = pd.concat([df_res, extra_markets], ignore_index=True)
+
+    # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
     dist_ajustes = [
         ["Formação",      round(form_aj_casa, 3),  round(form_aj_fora, 3)],
         ["Abordagem",     round(tipo_aj_casa, 3),  round(tipo_aj_fora, 3)],
@@ -979,7 +1036,6 @@ if st.button("Gerar Análise e Odds Justa"):
         ["λ (golos) aj.", round(lh, 3),            round(la, 3)],
         ["Meteo factor",  round(meteo_factor, 2),  round(meteo_factor, 2)],
         ["Prob. CASA",    round(prob_casa_aj, 3),  ""],
-        ["Prob. EMPATE",  round(prob_empate_aj, 3),""],
         ["Prob. FORA",    "",                      round(prob_fora_aj, 3)],
     ]
     distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
@@ -1001,6 +1057,8 @@ if st.button("Gerar Análise e Odds Justa"):
         "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
         "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora],
         "λ CASA (aj.)": [lh], "λ FORA (aj.)": [la], "Meteo factor": [meteo_factor],
+        "Over1.5 prob": [round(p_over15*100,1)], "Over2.5 prob": [round(p_over25*100,1)], "BTTS prob": [round(p_btts*100,1)],
+        "Over1.5 justa": [round(1/max(1e-9, p_over15),2)], "Over2.5 justa": [round(1/max(1e-9, p_over25),2)], "BTTS justa": [round(1/max(1e-9, p_btts),2)],
     }
     resumo_df = pd.DataFrame(resumo_dict)
     pesos_df = pd.DataFrame([pesos])
@@ -1016,6 +1074,7 @@ if st.button("Gerar Análise e Odds Justa"):
         "ajuste": (ajuste_total_casa, ajuste_total_fora),
         "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
     }
+
 
 
 # ===================== MOSTRAR RESULTADOS (fora do botão) =====================
