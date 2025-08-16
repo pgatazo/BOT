@@ -78,27 +78,58 @@ METEO_MULT = {
     "Outro": 1.00,
 }
 
-def pois_pmf(k: int, lam: float) -> float:
-    """Probabilidade de marcar exatamente k golos (Poisson)."""
-    lam = max(lam, 1e-6)
-    return exp(-lam) * (lam**k) / factorial(k)
+import math
 
-def poisson_outcome_probs(l_home: float, l_away: float, max_goals: int = 10):
-    """Probabilidades de vitória Casa / Empate / Fora via Poisson."""
-    p_home = p_draw = p_away = 0.0
-    for hg in range(max_goals + 1):
-        ph = pois_pmf(hg, l_home)
-        for ag in range(max_goals + 1):
-            pa = pois_pmf(ag, l_away)
+def pois_pmf(k: int, lam: float) -> float:
+    """
+    Probabilidade de marcar exatamente k golos (Poisson).
+    Robustez:
+      - lam mínimo 1e-9
+      - k < 0 => 0
+    """
+    if k < 0:
+        return 0.0
+    lam = max(float(lam), 1e-9)
+    # math.factorial é exato para k inteiros
+    return math.exp(-lam) * (lam**k) / math.factorial(k)
+
+def poisson_outcome_probs(l_home: float, l_away: float, max_goals: int = 12):
+    """
+    Probabilidades 1X2 via Poisson somando a grelha 0..max_goals.
+    max_goals=12 cobre >99% dos cenários normais.
+    Faz normalização final para garantir soma=1.
+    """
+    # clamp de segurança
+    l_home = max(float(l_home), 1e-9)
+    l_away = max(float(l_away), 1e-9)
+
+    # cache simples de pmf para reduzir chamadas repetidas
+    pmf_home = [pois_pmf(k, l_home) for k in range(max_goals + 1)]
+    pmf_away = [pois_pmf(k, l_away) for k in range(max_goals + 1)]
+
+    p_home = 0.0
+    p_draw = 0.0
+    p_away = 0.0
+
+    for gh in range(max_goals + 1):
+        ph = pmf_home[gh]
+        for ga in range(max_goals + 1):
+            pa = pmf_away[ga]
             p = ph * pa
-            if hg > ag:
+            if gh > ga:
                 p_home += p
-            elif hg == ag:
+            elif gh == ga:
                 p_draw += p
             else:
                 p_away += p
-    s = max(1e-12, p_home + p_draw + p_away)
+
+    s = p_home + p_draw + p_away
+    if s <= 0:
+        # fallback impossível na prática, mas evita divisões por zero
+        return 1/3, 1/3, 1/3
+
     return p_home/s, p_draw/s, p_away/s
+
 
 # --------- PARSER DE STREAMS ---------
 def parse_m3u_or_url(raw: str) -> Optional[str]:
