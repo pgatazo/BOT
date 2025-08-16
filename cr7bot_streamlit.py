@@ -265,44 +265,108 @@ def load_chat():
     return []
 
 
-def export_detalhado(base, eventos, xg_2p=None, ajuste=None, xg_ponderado=None):
-    """Cria Excel com múltiplas abas: Base, Eventos, Pesos, Passos e Resultado Final."""
+def export_detalhado(base_inputs, eventos, xg_2p=None, ajuste=None, xg_ponderado=None):
+    """
+    Cria Excel com uma única sheet 'Detalhe_Analise' mostrando o processo todo.
+    """
+
+    pesos = load_pesos()
+    linhas = []
+    acumulado = xg_ponderado if xg_ponderado is not None else 1.0
+    ordem = 1
+
+    # Linha base inicial
+    linhas.append({
+        "Ordem": ordem,
+        "Etapa": "xG ponderado inicial",
+        "Input": f"{xg_ponderado:.2f}" if xg_ponderado is not None else "-",
+        "Peso aplicado": "-",
+        "Ajuste parcial": "-",
+        "Resultado acumulado": acumulado,
+        "Nota": "Base inicial do cálculo"
+    })
+    ordem += 1
+
+    # Inputs de pré-jogo (ligados aos pesos)
+    for key, val in base_inputs.items():
+        peso = pesos.get(key, 0)
+        ajuste_parcial = peso * (val if isinstance(val, (int, float)) else 1)
+        acumulado += ajuste_parcial
+        linhas.append({
+            "Ordem": ordem,
+            "Etapa": key,
+            "Input": val,
+            "Peso aplicado": peso,
+            "Ajuste parcial": ajuste_parcial,
+            "Resultado acumulado": acumulado,
+            "Nota": "Input pré-jogo"
+        })
+        ordem += 1
+
+    # Eventos live
+    for ev in eventos:
+        tipo = ev.get("tipo", "Evento")
+        equipa = ev.get("equipa", "-")
+        ajuste_parcial, nota = 0.0, ""
+
+        if tipo == "Golo":
+            ajuste_parcial = 0.20 if equipa == "Casa" else -0.20
+            nota = "Impacto de golo"
+        elif tipo == "Expulsão":
+            ajuste_parcial = -0.15 if equipa == "Casa" else 0.15
+            nota = "Impacto de expulsão"
+        elif tipo == "Penalty":
+            ajuste_parcial = 0.25 if equipa == "Casa" else -0.25
+            nota = "Impacto de penalty"
+        elif tipo == "Substituição":
+            troca = ev.get("tipo_troca", "")
+            if troca == "Avançado por Médio": ajuste_parcial = -0.08 if equipa == "Casa" else 0.08
+            elif troca == "Avançado por Defesa": ajuste_parcial = -0.12 if equipa == "Casa" else 0.12
+            elif troca == "Médio por Avançado": ajuste_parcial = 0.07 if equipa == "Casa" else -0.07
+            elif troca == "Defesa por Avançado": ajuste_parcial = 0.10 if equipa == "Casa" else -0.10
+            nota = f"Substituição ({troca})"
+        elif tipo == "Mudança de formação":
+            form = ev.get("tipo_formacao", "")
+            if form == "Atacante": ajuste_parcial = 0.08 if equipa == "Casa" else -0.08
+            elif form == "Defensivo": ajuste_parcial = -0.08 if equipa == "Casa" else 0.08
+            nota = f"Mudança de formação ({form})"
+        elif tipo == "Amarelo":
+            pos = ev.get("posicao", "")
+            if pos == "Defesa": ajuste_parcial = -0.05 if equipa == "Casa" else 0.05
+            elif pos == "Médio": ajuste_parcial = -0.03 if equipa == "Casa" else 0.03
+            elif pos == "Avançado": ajuste_parcial = -0.01 if equipa == "Casa" else 0.01
+            nota = f"Amarelo ({pos})"
+
+        acumulado += ajuste_parcial
+        linhas.append({
+            "Ordem": ordem,
+            "Etapa": tipo,
+            "Input": equipa,
+            "Peso aplicado": "-",
+            "Ajuste parcial": ajuste_parcial,
+            "Resultado acumulado": acumulado,
+            "Nota": nota
+        })
+        ordem += 1
+
+    # Resultado final
+    linhas.append({
+        "Ordem": ordem,
+        "Etapa": "Resultado Final",
+        "Input": "-",
+        "Peso aplicado": "-",
+        "Ajuste parcial": "-",
+        "Resultado acumulado": acumulado,
+        "Nota": "xG esperado / odds justas finais"
+    })
+
+    df = pd.DataFrame(linhas)
+
     output = BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        # Base
-        if base:
-            pd.DataFrame([base]).to_excel(writer, sheet_name="Base", index=False)
-        # Eventos
-        if eventos:
-            pd.DataFrame(eventos).to_excel(writer, sheet_name="Eventos", index=False)
-        # Pesos (exemplo — podes personalizar)
-        pesos = [
-            {"Evento": "Golo", "Impacto": "+0.20 Casa, -0.20 Fora"},
-            {"Evento": "Expulsão", "Impacto": "-0.15 Casa, +0.15 Fora"},
-            {"Evento": "Penalty", "Impacto": "+0.25 Casa, -0.25 Fora"},
-            {"Evento": "Substituição", "Impacto": "Var. conforme tipo_troca"},
-            {"Evento": "Mudança formação", "Impacto": "+0.08 Atacante, -0.08 Defensivo"},
-            {"Evento": "Amarelo", "Impacto": "-0.05 Defesa, -0.03 Médio, -0.01 Avançado"}
-        ]
-        pd.DataFrame(pesos).to_excel(writer, sheet_name="Pesos", index=False)
-        # Passo-a-passo
-        passos = []
-        if base:
-            passos.append({"Passo": "xG total", "Valor": base.get("xg_casa", 0) + base.get("xg_fora", 0)})
-            passos.append({"Passo": "xGOT total", "Valor": base.get("xgot_casa", 0) + base.get("xgot_fora", 0)})
-        if xg_ponderado is not None:
-            passos.append({"Passo": "xG ponderado", "Valor": xg_ponderado})
-        if ajuste is not None:
-            passos.append({"Passo": "Ajuste aplicado", "Valor": ajuste})
-        if xg_2p is not None:
-            passos.append({"Passo": "xG final previsto 2ª parte", "Valor": xg_2p})
-        if passos:
-            pd.DataFrame(passos).to_excel(writer, sheet_name="Passos", index=False)
-        # Resultado final
-        if xg_2p is not None:
-            df_final = pd.DataFrame([{"xG_2p": xg_2p, "Ajuste": ajuste, "xG_ponderado": xg_ponderado}])
-            df_final.to_excel(writer, sheet_name="Resultado Final", index=False)
+        df.to_excel(writer, sheet_name="Detalhe_Analise", index=False)
     return output.getvalue()
+
 
 
 # ======== LISTAS ========
@@ -643,7 +707,7 @@ with tab1:
 
     st.markdown('</div>', unsafe_allow_html=True)
     
-if st.button("🗑️ Limpar Pré-Análise"):
+    if st.button("🗑️ Limpar Pré-Análise"):
     for key in list(st.session_state.keys()):
         if "pre" in key or "golos" in key or "sofridos" in key or "jogos" in key or "h2h" in key:
             del st.session_state[key]
