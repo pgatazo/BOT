@@ -129,6 +129,30 @@ def poisson_outcome_probs(l_home: float, l_away: float, max_goals: int = 12):
         return 1/3, 1/3, 1/3
 
     return p_home/s, p_draw/s, p_away/s
+    
+    # ---- Mercados de golos adicionais ----
+def prob_over(total_line: float, lh: float, la: float, max_goals: int = 12) -> float:
+    """
+    Prob(Over X.5) = 1 - P(total <= X).
+    Exemplo: total_line=1.5 => X=1.
+    """
+    k = int(total_line - 0.5)  # transforma 1.5 -> 1, 2.5 -> 2
+    pmf_home = [pois_pmf(h, lh) for h in range(max_goals + 1)]
+    pmf_away = [pois_pmf(a, la) for a in range(max_goals + 1)]
+
+    p_le_k = 0.0
+    for gh in range(max_goals + 1):
+        ph = pmf_home[gh]
+        for ga in range(max_goals + 1):
+            if gh + ga <= k:
+                p_le_k += ph * pmf_away[ga]
+
+    return max(0.0, min(1.0, 1.0 - p_le_k))
+
+def prob_btts(lh: float, la: float) -> float:
+    """Probabilidade de Ambas Marcam (BTTS)."""
+    # P(BTTS) = 1 - P(home=0) - P(away=0) + P(home=0, away=0)
+    return max(0.0, min(1.0, 1.0 - math.exp(-lh) - math.exp(-la) + math.exp(-(lh + la))))
 
 
 # --------- PARSER DE STREAMS ---------
