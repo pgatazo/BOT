@@ -940,27 +940,27 @@ if st.button("Gerar Análise e Odds Justa"):
                                        [stake_casa, stake_empate, stake_fora])]
     })
 
-    # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
-dist_ajustes = [
-    ["Formação",      round(form_aj_casa, 3),  round(form_aj_fora, 3)],
-    ["Abordagem",     round(tipo_aj_casa, 3),  round(tipo_aj_fora, 3)],
-    ["Titulares",     round(tit_aj_casa, 3),   round(tit_aj_fora, 3)],
-    ["Motivação",     round(motiv_aj_casa, 3), round(motiv_aj_fora, 3)],
-    ["Árbitro",       round(arb_aj_casa, 3),   round(arb_aj_fora, 3)],
-    ["Pressão",       round(press_aj_casa, 3), round(press_aj_fora, 3)],
-    ["Importância",   round(imp_aj_casa, 3),   round(imp_aj_fora, 3)],
-    ["Desgaste",      round(des_aj_casa, 3),   round(des_aj_fora, 3)],
-    ["Viagem",        round(viag_aj_casa, 3),  round(viag_aj_fora, 3)],
-    ["AJUSTE TOTAL",  round(ajuste_total_casa, 3), round(ajuste_total_fora, 3)],
-    ["λ (golos) aj.", round(lh, 3),            round(la, 3)],
-    ["Meteo factor",  round(meteo_factor, 2),  round(meteo_factor, 2)],
-    ["Prob. CASA",    round(prob_casa_aj, 3),  ""],
-    ["Prob. FORA",    "",                      round(prob_fora_aj, 3)],
-]
-distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
+        # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
+    dist_ajustes = [
+        ["Formação",      round(form_aj_casa, 3),  round(form_aj_fora, 3)],
+        ["Abordagem",     round(tipo_aj_casa, 3),  round(tipo_aj_fora, 3)],
+        ["Titulares",     round(tit_aj_casa, 3),   round(tit_aj_fora, 3)],
+        ["Motivação",     round(motiv_aj_casa, 3), round(motiv_aj_fora, 3)],
+        ["Árbitro",       round(arb_aj_casa, 3),   round(arb_aj_fora, 3)],
+        ["Pressão",       round(press_aj_casa, 3), round(press_aj_fora, 3)],
+        ["Importância",   round(imp_aj_casa, 3),   round(imp_aj_fora, 3)],
+        ["Desgaste",      round(des_aj_casa, 3),   round(des_aj_fora, 3)],
+        ["Viagem",        round(viag_aj_casa, 3),  round(viag_aj_fora, 3)],
+        ["AJUSTE TOTAL",  round(ajuste_total_casa, 3), round(ajuste_total_fora, 3)],
+        ["λ (golos) aj.", round(lh, 3),            round(la, 3)],
+        ["Meteo factor",  round(meteo_factor, 2),  round(meteo_factor, 2)],
+        ["Prob. CASA",    round(prob_casa_aj, 3),  ""],
+        ["Prob. EMPATE",  round(prob_empate_aj, 3),""],
+        ["Prob. FORA",    "",                      round(prob_fora_aj, 3)],
+    ]
+    distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
-
-        # ===================== RESUMO =====================
+    # ===================== RESUMO =====================
     resumo_dict = {
         "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
         "Formação CASA": [form_casa], "Formação FORA": [form_fora],
@@ -981,7 +981,6 @@ distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
     resumo_df = pd.DataFrame(resumo_dict)
     pesos_df = pd.DataFrame([pesos])
 
-
     # 👉 Guardar no session_state
     st.session_state["analise_final"] = {
         "df_res": df_res,
@@ -993,6 +992,7 @@ distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
         "ajuste": (ajuste_total_casa, ajuste_total_fora),
         "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
     }
+
 
 # ===================== MOSTRAR RESULTADOS (fora do botão) =====================
 if "analise_final" in st.session_state:
