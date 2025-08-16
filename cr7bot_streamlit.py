@@ -647,13 +647,28 @@ with tab1:
             equipa_fora = nova_fora
 
     # ---- Odds & banca
-    st.subheader("Odds da Casa de Apostas (1X2)")
+    st.subheader("📊 Odds da Casa de Apostas")
+
     col_odds1, col_odds2, col_odds3 = st.columns(3)
-    with col_odds1: odd_casa = st.number_input("Odd Vitória CASA", min_value=1.0, value=1.90)
-    with col_odds2: odd_empate = st.number_input("Odd EMPATE", min_value=1.0, value=3.10)
-    with col_odds3: odd_fora = st.number_input("Odd Vitória FORA", min_value=1.0, value=4.10)
-    st.info(f"Soma odds casa de apostas: **{(odd_casa+odd_empate+odd_fora):.2f}**")
+    with col_odds1:
+        odd_casa = st.number_input("Odd CASA (1)", min_value=1.01, value=1.80, step=0.01)
+    with col_odds2:
+        odd_empate = st.number_input("Odd EMPATE (X)", min_value=1.01, value=3.50, step=0.01)
+    with col_odds3:
+        odd_fora = st.number_input("Odd FORA (2)", min_value=1.01, value=4.20, step=0.01)
+
+    col_odds4, col_odds5, col_odds6 = st.columns(3)
+    with col_odds4:
+        odd_over15 = st.number_input("Over 1.5 (Match)", min_value=1.01, value=1.35, step=0.01)
+    with col_odds5:
+        odd_over25 = st.number_input("Over 2.5 (Match)", min_value=1.01, value=1.95, step=0.01)
+    with col_odds6:
+        odd_btts = st.number_input("BTTS (Match)", min_value=1.01, value=1.85, step=0.01)
+
+    soma_odds = odd_casa + odd_empate + odd_fora
+    st.info(f"Soma odds 1X2: **{soma_odds:.2f}**")
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
+
 
     # ---- Formações / titulares / meteo / árbitro / motivação
     st.subheader("Formações e Estratégias")
@@ -822,34 +837,57 @@ if st.button("Gerar Análise e Odds Justa"):
     distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator","Casa","Fora"])
 
     resumo_dict = {
-        "Liga":[liga_escolhida], "Equipa CASA":[equipa_casa], "Equipa FORA":[equipa_fora],
-        "Formação CASA":[form_casa], "Formação FORA":[form_fora],
-        "Abordagem CASA":[tipo_form_casa], "Abordagem FORA":[tipo_form_fora],
-        "Titulares CASA":[titulares_casa], "Titulares FORA":[titulares_fora],
-        "Período do Jogo":[periodo_jogo], "Meteo":[meteo],
-        "Nota Árbitro":[arbitro], "Tendência Cartões":[tendencia_cartoes], "Média Cartões":[media_cartoes],
-        "Motivação CASA":[motivacao_casa], "Importância Jogo CASA":[importancia_jogo_casa], "Pressão Adeptos CASA":[pressao_adeptos_casa],
-        "Desgaste CASA":[desgaste_fisico_casa], "Viagem CASA":[viagem_casa],
-        "Motivação FORA":[motivacao_fora], "Importância Jogo FORA":[importancia_jogo_fora], "Pressão Adeptos FORA":[pressao_adeptos_fora],
-        "Desgaste FORA":[desgaste_fisico_fora], "Viagem FORA":[viagem_fora],
-        "Odd CASA":[odd_casa], "Odd EMPATE":[odd_empate], "Odd FORA":[odd_fora], "Banca (€)":[banca],
-        "Média Marcados CASA":[media_marcados_casa], "Média Sofridos CASA":[media_sofridos_casa],
-        "Média Marcados FORA":[media_marcados_fora], "Média Sofridos FORA":[media_sofridos_fora],
-        "Média H2H CASA":[media_h2h_casa], "Média H2H FORA":[media_h2h_fora],
-        "λ CASA (aj.)":[lh], "λ FORA (aj.)":[la], "Meteo factor":[meteo_factor],
-        "Over1.5 prob":[round(p_over15*100,1)], "Over2.5 prob":[round(p_over25*100,1)], "BTTS prob":[round(p_btts*100,1)],
-        "Over1.5 justa":[round(1/max(eps,p_over15),2)], "Over2.5 justa":[round(1/max(eps,p_over25),2)], "BTTS justa":[round(1/max(eps,p_btts),2)],
-    }
-    resumo_df = pd.DataFrame(resumo_dict)
-    pesos_df = pd.DataFrame([pesos])
+    "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
+    "Formação CASA": [form_casa], "Formação FORA": [form_fora],
+    "Abordagem CASA": [tipo_form_casa], "Abordagem FORA": [tipo_form_fora],
+    "Titulares CASA": [titulares_casa], "Titulares FORA": [titulares_fora],
+    "Período do Jogo": [periodo_jogo], "Meteo": [meteo],
+    "Nota Árbitro": [arbitro], "Tendência Cartões": [tendencia_cartoes], "Média Cartões": [media_cartoes],
+    "Motivação CASA": [motivacao_casa], "Importância Jogo CASA": [importancia_jogo_casa], "Pressão Adeptos CASA": [pressao_adeptos_casa],
+    "Desgaste CASA": [desgaste_fisico_casa], "Viagem CASA": [viagem_casa],
+    "Motivação FORA": [motivacao_fora], "Importância Jogo FORA": [importancia_jogo_fora], "Pressão Adeptos FORA": [pressao_adeptos_fora],
+    "Desgaste FORA": [desgaste_fisico_fora], "Viagem FORA": [viagem_fora],
 
-    st.session_state["analise_final"] = {
-        "df_res": df_res, "distrib_df": distrib_df, "resumo_df": resumo_df, "pesos_df": pesos_df,
-        "xg_2p": None, "ajuste": (ajuste_total_casa, ajuste_total_fora),
-        "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
-    }
+    # Odds 1X2 + banca
+    "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
 
-# ===================== MOSTRAR RESULTADOS (fora do botão) =====================
+    # Médias e H2H
+    "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
+    "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
+    "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora],
+
+    # Lambdas e Meteo
+    "λ CASA (aj.)": [lh], "λ FORA (aj.)": [la], "Meteo factor": [meteo_factor],
+
+    # Mercados Over/BTTS - odds da casa
+    "Odd Over 1.5": [odd_over15],
+    "Odd Over 2.5": [odd_over25],
+    "Odd BTTS":     [odd_btts],
+
+    # Probabilidades (em %) e odds justas (modelo)
+    "Over1.5 prob (%)": [round(p_over15*100, 1)],
+    "Over2.5 prob (%)": [round(p_over25*100, 1)],
+    "BTTS prob (%)":    [round(p_btts*100,   1)],
+
+    "Over1.5 justa": [round(1/max(eps, p_over15), 2)],
+    "Over2.5 justa": [round(1/max(eps, p_over25), 2)],
+    "BTTS justa":    [round(1/max(eps, p_btts),   2)],
+}
+
+resumo_df = pd.DataFrame(resumo_dict)
+pesos_df = pd.DataFrame([pesos])
+
+# 👉 Guardar no session_state
+st.session_state["analise_final"] = {
+    "df_res": df_res,
+    "distrib_df": distrib_df,
+    "resumo_df": resumo_df,
+    "pesos_df": pesos_df,
+    # 👇 guardar também para o bloco LIVE
+    "xg_2p": locals().get("xg_2p"),
+    "ajuste": (ajuste_total_casa, ajuste_total_fora),
+    "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
+}
 if "analise_final" in st.session_state:
     analise = st.session_state["analise_final"]
     st.subheader("Resultados da Análise")
