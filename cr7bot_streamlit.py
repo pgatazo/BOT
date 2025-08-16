@@ -483,31 +483,40 @@ with tab1:
         key="equipa_fora"
     )
     if equipa_casa == "Outra (personalizada)":
-        nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
-        if nova_casa:
-            if nova_casa not in equipas_disponiveis:
-                equipas_disponiveis.append(nova_casa)
-                if liga_escolhida in ligas_fixas:
-                    st.warning("Apenas ligas personalizadas permitem guardar equipas para o futuro!")
-                else:
-                    ligas_custom[liga_escolhida] = equipas_disponiveis
-                    custom_data["ligas"] = ligas_custom
-                    save_custom(custom_data)
-                    st.success(f"Equipa '{nova_casa}' adicionada às opções!")
+    nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
+    if nova_casa:
+        if nova_casa not in equipas_disponiveis:
+            equipas_disponiveis.append(nova_casa)
+            # 🔄 GUARDA SEMPRE, mesmo em ligas fixas
+            if liga_escolhida in ligas_fixas:
+                if "Custom_Global" not in ligas_custom:
+                    ligas_custom["Custom_Global"] = []
+                ligas_custom["Custom_Global"].append(nova_casa)
+                st.info("Equipa guardada em 'Custom_Global' para uso futuro.")
+            else:
+                ligas_custom[liga_escolhida] = equipas_disponiveis
+            custom_data["ligas"] = ligas_custom
+            save_custom(custom_data)
+            st.success(f"Equipa '{nova_casa}' adicionada às opções!")
+        equipa_casa = nova_casa
             equipa_casa = nova_casa
     if equipa_fora == "Outra (personalizada)":
-        nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
-        if nova_fora:
-            if nova_fora not in equipas_disponiveis:
-                equipas_disponiveis.append(nova_fora)
-                if liga_escolhida in ligas_fixas:
-                    st.warning("Apenas ligas personalizadas permitem guardar equipas para o futuro!")
-                else:
-                    ligas_custom[liga_escolhida] = equipas_disponiveis
-                    custom_data["ligas"] = ligas_custom
-                    save_custom(custom_data)
-                    st.success(f"Equipa '{nova_fora}' adicionada às opções!")
-            equipa_fora = nova_fora
+    nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
+    if nova_fora:
+        if nova_fora not in equipas_disponiveis:
+            equipas_disponiveis.append(nova_fora)
+            # 🔄 GUARDA SEMPRE, mesmo em ligas fixas
+            if liga_escolhida in ligas_fixas:
+                if "Custom_Global" not in ligas_custom:
+                    ligas_custom["Custom_Global"] = []
+                ligas_custom["Custom_Global"].append(nova_fora)
+                st.info("Equipa guardada em 'Custom_Global' para uso futuro.")
+            else:
+                ligas_custom[liga_escolhida] = equipas_disponiveis
+            custom_data["ligas"] = ligas_custom
+            save_custom(custom_data)
+            st.success(f"Equipa '{nova_fora}' adicionada às opções!")
+        equipa_fora = nova_fora
 
     st.subheader("Odds da Casa de Apostas (1X2)")
     col_odds1, col_odds2, col_odds3 = st.columns(3)
