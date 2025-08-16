@@ -76,8 +76,15 @@ M3U_ENTRY_RE = re.compile(
 def parse_m3u(text: str):
     """Devolve lista de dicts: [{'name':..., 'url':...}] a partir de .m3u simples."""
     chans = []
-    for m in M3U_ENTRY_RE.finditer(text.replace('\r','')):
+    payload = text.replace('\r','').strip()
+    for m in M3U_ENTRY_RE.finditer(payload):
         chans.append({"name": m.group('name').strip(), "url": m.group('url').strip()})
+    # fallback: tentar linhas soltas http(s) .m3u8 quando não há EXTINF
+    if not chans:
+        for line in payload.splitlines():
+            line = line.strip()
+            if line.lower().startswith(("http://","https://")) and ".m3u8" in line.lower():
+                chans.append({"name": line.rsplit("/",1)[-1], "url": line})
     return chans
 
 def looks_safe_m3u8(url: str) -> bool:
@@ -137,51 +144,172 @@ def hls_player(url: str, height: int = 420):
     """
     components.html(html, height=height, scrolling=False)
 
-# --------- UI PRINCIPAL DO PLAYER (sem sidebar) ---------
+# ---- Favoritos (persistentes em disco) ----
+FAVORITES_FILE = "favoritos_m3u.json"
+def load_favs() -> dict:
+    if os.path.exists(FAVORITES_FILE):
+        try:
+            with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+def save_favs(data: dict) -> None:
+    tmp = FAVORITES_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, FAVORITES_FILE)
+
+# --------- UI PRINCIPAL DO PLAYER (canais + favoritos) ---------
 st.subheader("📺 Leitor HLS / M3U8")
 
+# estado
 if "hls_url" not in st.session_state:
     st.session_state["hls_url"] = None
+if "channels" not in st.session_state:
+    st.session_state["channels"] = []   # [{'name','url'}]
+if "favs" not in st.session_state:
+    st.session_state["favs"] = load_favs()  # dict: categoria -> list[{name,url}]
 
-raw_stream = st.text_area(
-    "Cole a URL .m3u8 OU o conteúdo .m3u8 (pequeno)",
-    height=100,
-    placeholder="https://servidor/playlist.m3u8 ou #EXTM3U ..."
-)
-uploaded = st.file_uploader("…ou carregue ficheiro .m3u / .m3u8", type=["m3u","m3u8"])
+# inputs base
+col_src, col_up = st.columns([2,1])
+with col_src:
+    raw_stream = st.text_area(
+        "Cole a URL .m3u8 OU o conteúdo .m3u8 (pequeno) / .m3u (lista)",
+        height=100,
+        placeholder="https://servidor/playlist.m3u8  ou  #EXTM3U ...",
+    )
+with col_up:
+    uploaded = st.file_uploader("Ficheiro .m3u / .m3u8", type=["m3u","m3u8"])
 
-col1, col2 = st.columns(2)
-with col1:
-    if st.button("Carregar stream"):
-        st.session_state["hls_url"] = parse_m3u_or_url(raw_stream)
-with col2:
-    if st.button("Limpar"):
+col_btn1, col_btn2, col_btn3 = st.columns(3)
+with col_btn1:
+    if st.button("Carregar lista/stream"):
+        chans = []
+        if raw_stream:
+            # tenta lista .m3u primeiro
+            chans = parse_m3u(raw_stream)
+            if not chans:
+                # tenta extrair stream único .m3u8 do conteúdo
+                url = parse_m3u_or_url(raw_stream)
+                if url:
+                    st.session_state["hls_url"] = url
+        if chans:
+            st.session_state["channels"] = chans
+            st.success(f"Lista carregada: {len(chans)} canais.")
+with col_btn2:
+    if st.button("Limpar lista"):
+        st.session_state["channels"] = []
+with col_btn3:
+    if st.button("Limpar player"):
         st.session_state["hls_url"] = None
 
-# Se foi feito upload de um .m3u/.m3u8, tenta extrair o stream
+# upload
 if uploaded is not None:
     try:
         content = uploaded.getvalue().decode("utf-8", errors="ignore")
-        chans = parse_m3u(content)  # tenta formato .m3u (lista)
+        chans = parse_m3u(content)
         if chans:
-            st.session_state["hls_url"] = chans[0]["url"]
-            st.success(f"Canal carregado: {chans[0]['name']}")
+            st.session_state["channels"] = chans
+            st.success(f"Lista carregada: {len(chans)} canais.")
         else:
-            st.session_state["hls_url"] = parse_m3u_or_url(content)  # tenta conteúdo .m3u8
-            if st.session_state["hls_url"]:
-                st.success("Stream extraído do ficheiro.")
+            url = parse_m3u_or_url(content)
+            if url:
+                st.session_state["hls_url"] = url
+                st.success("Stream .m3u8 extraído do ficheiro.")
             else:
-                st.warning("Não foi possível extrair um .m3u8 do ficheiro.")
+                st.warning("Não foi possível extrair canais nem um .m3u8 do ficheiro.")
     except Exception as e:
         st.error(f"Erro a ler ficheiro: {e}")
 
+st.markdown("---")
+
+# filtro/seleção + favoritos
+left, right = st.columns([3,2])
+
+with left:
+    st.markdown("### 📜 Canais")
+    channels = st.session_state["channels"]
+    search = st.text_input("Pesquisar canal", placeholder="nome parcial…")
+    if search:
+        channels = [c for c in channels if search.lower() in c["name"].lower()]
+
+    if channels:
+        names = [c["name"] for c in channels]
+        idx = st.selectbox("Escolhe um canal", range(len(names)), format_func=lambda i: names[i])
+        sel = channels[idx]
+        st.write(f"URL: `{sel['url']}`")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("▶️ Reproduzir", key="play_sel"):
+                st.session_state["hls_url"] = sel["url"]
+        with c2:
+            fav_cats = ["(nova)"] + list(st.session_state["favs"].keys())
+            fav_choice = st.selectbox("Categoria", fav_cats, key="fav_cat_sel")
+        with c3:
+            new_cat = st.text_input("Nova categoria", value="" if fav_choice != "(nova)" else "", key="fav_new_cat")
+
+        if st.button("⭐ Guardar nos favoritos", key="add_fav"):
+            cat = new_cat.strip() if fav_choice == "(nova)" else fav_choice
+            if not cat:
+                st.warning("Indica um nome para a categoria.")
+            else:
+                favs = st.session_state["favs"]
+                favs.setdefault(cat, [])
+                if not any(x["url"] == sel["url"] for x in favs[cat]):
+                    favs[cat].append({"name": sel["name"], "url": sel["url"]})
+                    st.session_state["favs"] = favs
+                    save_favs(favs)
+                    st.success(f"Adicionado a '{cat}'.")
+                else:
+                    st.info("Esse canal já existe na categoria.")
+
+    else:
+        st.info("Sem lista de canais carregada. Carrega um .m3u ou cola conteúdo no campo acima.")
+
+with right:
+    st.markdown("### ⭐ Favoritos")
+    favs = st.session_state["favs"]
+    cats = list(favs.keys())
+    if cats:
+        cat_sel = st.selectbox("Categoria", cats, key="fav_cat_play")
+        items = favs.get(cat_sel, [])
+        if items:
+            names_f = [i["name"] for i in items]
+            idx_f = st.selectbox("Canal favorito", range(len(names_f)), format_func=lambda i: names_f[i], key="fav_idx")
+            sel_f = items[idx_f]
+            st.write(f"URL: `{sel_f['url']}`")
+            b1, b2, b3 = st.columns(3)
+            with b1:
+                if st.button("▶️ Reproduzir favorito"):
+                    st.session_state["hls_url"] = sel_f["url"]
+            with b2:
+                if st.button("🗑️ Remover favorito"):
+                    items.pop(idx_f)
+                    favs[cat_sel] = items
+                    st.session_state["favs"] = favs
+                    save_favs(favs)
+                    st.success("Removido.")
+            with b3:
+                if st.button("🗑️ Remover categoria"):
+                    del favs[cat_sel]
+                    st.session_state["favs"] = favs
+                    save_favs(favs)
+                    st.success("Categoria removida.")
+        else:
+            st.info("Esta categoria está vazia.")
+    else:
+        st.info("Ainda não existem categorias de favoritos.")
+
+st.markdown("---")
+
 # Render do player no corpo principal
+st.markdown("### 🎬 Player")
 if st.session_state["hls_url"]:
     st.caption(f"Fonte: `{st.session_state['hls_url']}`")
     hls_player(st.session_state["hls_url"], height=420)
 else:
-    st.info("Insere uma URL .m3u8 válida ou carrega um ficheiro .m3u/.m3u8 para começar.")
-
+    st.info("Insere uma URL .m3u8 válida, carrega uma lista .m3u e escolhe um canal, ou usa os favoritos.")
 
 # ======== FICHEIROS ========
 
