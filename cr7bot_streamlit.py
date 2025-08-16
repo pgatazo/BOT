@@ -386,47 +386,7 @@ else:
 # ======== TÍTULO + LEITOR (UI usa as funções já definidas) ========
 st.title("⚽️ PauloDamas-GPT — Análise Pré-Jogo + Live + IA + Chat")
 
-# ====== BLOCO LEITOR M3U/M3U8 ======
-st.markdown("### 📺 Leitor ao vivo (HLS / M3U8)")
-with st.container():
-    colL, colR = st.columns([2, 3])
 
-    with colL:
-        fonte = st.radio("Fonte da lista", ["URL .m3u / .m3u8", "Upload ficheiro .m3u"], horizontal=False)
-        canais = []
-        selected_url = None
-
-        if fonte == "URL .m3u / .m3u8":
-            lista_url = st.text_input("URL da lista/canal", placeholder="https://.../playlist.m3u OU https://.../canal.m3u8")
-            if lista_url:
-                if looks_safe_m3u8(lista_url):
-                    selected_url = lista_url
-                else:
-                    st.warning("Se for playlist .m3u remota, o Streamlit não a lê diretamente sem backend/proxy. "
-                               "Faz upload do ficheiro .m3u abaixo ou usa o teu proxy_m3u.py.")
-        else:
-            up = st.file_uploader("Carregar ficheiro .m3u", type=["m3u", "m3u8"])
-            if up is not None:
-                txt = up.read().decode(errors="ignore")
-                canais = parse_m3u(txt)
-                if canais:
-                    nomes = [c["name"] for c in canais]
-                    ix = st.selectbox("Escolhe o canal", range(len(nomes)),
-                                      format_func=lambda i: nomes[i])
-                    selected_url = canais[ix]["url"]
-
-        auto_play = st.checkbox("Auto-play", value=False)
-        st.caption("Dica: usa PiP para manter o vídeo sobre o formulário.")
-
-    with colR:
-        if selected_url:
-            if not looks_safe_m3u8(selected_url):
-                st.error("URL inválida/suspeita. Tem de apontar para .m3u8.")
-            else:
-                st.write(f"**Canal:** `{selected_url}`")
-                hls_player(selected_url, height=420 if not auto_play else 460)
-        else:
-            st.info("Escolhe um canal .m3u8 ou faz upload de um ficheiro .m3u para listar canais.")
 
 # ======== FUNÇÕES UTILITÁRIAS ========
 def kelly_criterion(prob, odd, banca, fracao=1):
