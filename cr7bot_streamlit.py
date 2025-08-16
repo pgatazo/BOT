@@ -715,7 +715,7 @@ if st.button("🗑️ Limpar Pré-Análise"):
 
 if st.button("📊 Exportar Excel Detalhado (Pré-Jogo)"):
     excel_data = export_detalhado(st.session_state.get("medias", {}), [])
-   st.download_button(
+    st.download_button(
         label="📥 Download Excel Detalhado",
         data=excel_data,
         file_name="pre_jogo_detalhado.xlsx",
