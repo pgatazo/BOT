@@ -626,89 +626,63 @@ with tab1:
     st.markdown('<div class="mainblock">', unsafe_allow_html=True)
 
     st.header("Análise Pré-Jogo (com fatores avançados)")
-liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
-
-# Criar nova liga personalizada
-if liga_escolhida == "Outra (nova liga personalizada)":
-    nova_liga = st.text_input("Nome da nova liga personalizada:", key="nova_liga")
-    if nova_liga:
-        if nova_liga not in todas_ligas:
-            ligas_custom[nova_liga] = []
-            custom_data["ligas"] = ligas_custom
-            save_custom(custom_data)
-            st.success(f"Liga '{nova_liga}' criada! Vai aparecer no menu ao recarregar.")
-        else:
-            st.info("Esta liga já existe.")
-    st.stop()
-
-# Construir lista de equipas disponíveis = base fixa + extras personalizados da liga
-base = ligas_fixas.get(liga_escolhida, [])
-extras = ligas_custom.get(liga_escolhida, [])
-equipas_disponiveis = base + [e for e in extras if e not in base]
-
-# Campo para adicionar nova equipa (sempre na liga selecionada)
-equipa_nova = st.text_input(f"Adicionar nova equipa à '{liga_escolhida}':", key="equipa_nova")
-if equipa_nova:
-    ligas_custom.setdefault(liga_escolhida, [])
-    if (equipa_nova not in base) and (equipa_nova not in ligas_custom[liga_escolhida]):
-        ligas_custom[liga_escolhida].append(equipa_nova)
-        custom_data["ligas"] = ligas_custom
-        save_custom(custom_data)
-        st.success(f"Equipa '{equipa_nova}' adicionada à liga '{liga_escolhida}'!")
-        # refrescar a lista disponível
-        extras = ligas_custom.get(liga_escolhida, [])
-        equipas_disponiveis = base + [e for e in extras if e not in base]
+    liga_escolhida = st.selectbox("Liga:", todas_ligas, key="liga")
+    if liga_escolhida == "Outra (nova liga personalizada)":
+        nova_liga = st.text_input("Nome da nova liga personalizada:", key="nova_liga")
+        if nova_liga:
+            if nova_liga not in todas_ligas:
+                ligas_custom[nova_liga] = []
+                custom_data["ligas"] = ligas_custom
+                save_custom(custom_data)
+                st.success(f"Liga '{nova_liga}' criada! Vai aparecer no menu ao recarregar.")
+            else:
+                st.info("Esta liga já existe.")
+        st.stop()
+    if liga_escolhida in ligas_fixas:
+        equipas_disponiveis = ligas_fixas[liga_escolhida]
+    elif liga_escolhida in ligas_custom:
+        equipas_disponiveis = ligas_custom[liga_escolhida]
     else:
-        st.info("Esta equipa já existe nesta liga.")
+        equipas_disponiveis = []
+    if liga_escolhida in ligas_custom:
+        equipa_nova = st.text_input(f"Adicionar nova equipa à '{liga_escolhida}':", key="equipa_nova")
+        if equipa_nova:
+            if equipa_nova not in equipas_disponiveis:
+                equipas_disponiveis.append(equipa_nova)
+                ligas_custom[liga_escolhida] = equipas_disponiveis
+                custom_data["ligas"] = ligas_custom
+                save_custom(custom_data)
+                st.success(f"Equipa '{equipa_nova}' adicionada à liga '{liga_escolhida}'!")
+            else:
+                st.info("Esta equipa já existe nesta liga.")
 
-# Seleção de equipas (com opção 'Outra (personalizada)')
-equipa_casa = st.selectbox(
-    "Equipa da CASA",
-    equipas_disponiveis + (["Outra (personalizada)"] if "Outra (personalizada)" not in equipas_disponiveis else []),
-    key="equipa_casa"
-)
-equipa_fora = st.selectbox(
-    "Equipa FORA",
-    [e for e in equipas_disponiveis if e != equipa_casa] + (
-        ["Outra (personalizada)"] if equipa_casa != "Outra (personalizada)" and "Outra (personalizada)" not in equipas_disponiveis else []
-    ),
-    key="equipa_fora"
-)
-
-# Adicionar CASA personalizada na liga selecionada
-if equipa_casa == "Outra (personalizada)":
-    nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
-    if nova_casa:
-        ligas_custom.setdefault(liga_escolhida, [])
-        if (nova_casa not in base) and (nova_casa not in ligas_custom[liga_escolhida]):
-            ligas_custom[liga_escolhida].append(nova_casa)
-            custom_data["ligas"] = ligas_custom
-            save_custom(custom_data)
-            st.success(f"Equipa '{nova_casa}' adicionada à liga '{liga_escolhida}'!")
-        else:
-            st.info("Esta equipa já existe nesta liga.")
-        # atualizar lista e fixar seleção
-        extras = ligas_custom.get(liga_escolhida, [])
-        equipas_disponiveis = base + [e for e in extras if e not in base]
-        equipa_casa = nova_casa
-
-# Adicionar FORA personalizada na liga selecionada
-if equipa_fora == "Outra (personalizada)":
-    nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
-    if nova_fora:
-        ligas_custom.setdefault(liga_escolhida, [])
-        if (nova_fora not in base) and (nova_fora not in ligas_custom[liga_escolhida]):
-            ligas_custom[liga_escolhida].append(nova_fora)
-            custom_data["ligas"] = ligas_custom
-            save_custom(custom_data)
-            st.success(f"Equipa '{nova_fora}' adicionada à liga '{liga_escolhida}'!")
-        else:
-            st.info("Esta equipa já existe nesta liga.")
-        # atualizar lista e fixar seleção
-        extras = ligas_custom.get(liga_escolhida, [])
-        equipas_disponiveis = base + [e for e in extras if e not in base]
-        equipa_fora = nova_fora
-
+    equipa_casa = st.selectbox(
+        "Equipa da CASA",
+        equipas_disponiveis + (["Outra (personalizada)"] if "Outra (personalizada)" not in equipas_disponiveis else []),
+        key="equipa_casa"
+    )
+    equipa_fora = st.selectbox(
+        "Equipa FORA",
+        [e for e in equipas_disponiveis if e != equipa_casa] + (["Outra (personalizada)"] if equipa_casa != "Outra (personalizada)" and "Outra (personalizada)" not in equipas_disponiveis else []),
+        key="equipa_fora"
+    )
+    if equipa_casa == "Outra (personalizada)":
+        nova_casa = st.text_input("Nome da equipa CASA (personalizada)", key="input_casa")
+        if nova_casa:
+            if nova_casa not in equipas_disponiveis:
+                equipas_disponiveis.append(nova_casa)
+                # 🔄 GUARDA SEMPRE, mesmo em ligas fixas
+                if liga_escolhida in ligas_fixas:
+                    if "Custom_Global" not in ligas_custom:
+                        ligas_custom["Custom_Global"] = []
+                    ligas_custom["Custom_Global"].append(nova_casa)
+                    st.info("Equipa guardada em 'Custom_Global' para uso futuro.")
+                else:
+                    ligas_custom[liga_escolhida] = equipas_disponiveis
+                custom_data["ligas"] = ligas_custom
+                save_custom(custom_data)
+                st.success(f"Equipa '{nova_casa}' adicionada às opções!")
+            equipa_casa = nova_casa
       
     if equipa_fora == "Outra (personalizada)":
         nova_fora = st.text_input("Nome da equipa FORA (personalizada)", key="input_fora")
