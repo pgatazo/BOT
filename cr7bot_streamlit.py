@@ -980,29 +980,44 @@ if st.button("Gerar Análise Final"):
 
 # Mostrar análise + exportação SE já existir
 if "analise_final" in st.session_state:
-    analise_final = st.session_state["analise_final"]
+    analise_final = st.session_state["analise_final"] or {}
 
-    st.markdown(f"### 🟢 Golos Esperados (2ª parte): {analise_final['xg_2p']:.2f}")
-    st.info(f"""
-    **Resumo do Ajuste:**  
-    - xG ponderado: {analise_final['xg_ponderado']:.2f}  
-    - Ajuste total: {analise_final['ajuste']:.2f}  
-    - Eventos registados: {len(st.session_state.get('eventos_live', []))}
-    """)
-
-    base = st.session_state.get("live_base", {})
-    eventos = st.session_state.get("eventos_live", [])
-    excel_data = export_detalhado(
-        base, eventos,
-        analise_final["xg_2p"],
-        analise_final["ajuste"],
-        analise_final["xg_ponderado"]
+    # Saneamento: garantir floats (inclui as chaves usadas em baixo)
+    analise_final = sanitize_analysis(
+        analise_final,
+        keys=("xg_1p", "xg_2p", "xg_total", "xg_ponderado", "ajuste")
     )
+
+    # Mostrar métricas com formatação segura
+    st.markdown(f"### 🟢 Golos Esperados (2ª parte): {fmt_num(analise_final.get('xg_2p'))}")
+    eventos = st.session_state.get("eventos_live", []) or []
+    st.info(f"""
+**Resumo do Ajuste:**  
+- xG ponderado: {fmt_num(analise_final.get('xg_ponderado'))}  
+- Ajuste total: {fmt_num(analise_final.get('ajuste'))}  
+- Eventos registados: {len(eventos)}
+""")
+
+    # Preparar dados para export (valores numéricos válidos)
+    xg_2p_val        = to_float_or_none(analise_final.get("xg_2p")) or 0.0
+    ajuste_val       = to_float_or_none(analise_final.get("ajuste")) or 0.0
+    xg_ponderado_val = to_float_or_none(analise_final.get("xg_ponderado")) or 0.0
+
+    base = st.session_state.get("live_base", {}) or {}
+
+    excel_data = export_detalhado(
+        base,
+        eventos,
+        xg_2p_val,
+        ajuste_val,
+        xg_ponderado_val
+    )
+
     st.download_button(
         label="📥 Download Excel Detalhado (Live)",
         data=excel_data,
         file_name="live_detalhado.xlsx",
-        mime="application/vnd.ms-excel"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 # Botão independente de limpar eventos
