@@ -697,7 +697,11 @@ if st.button("Gerar Análise e Odds Justa"):
         "df_res": df_res,
         "distrib_df": distrib_df,
         "resumo_df": resumo_df,
-        "pesos_df": pesos_df
+        "pesos_df": pesos_df,
+        # 👇 guardar também para o bloco LIVE
+        "xg_2p": locals().get("xg_2p"),
+        "ajuste": (ajuste_total_casa, ajuste_total_fora),
+        "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
     }
 
 
