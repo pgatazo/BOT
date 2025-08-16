@@ -960,7 +960,7 @@ dist_ajustes = [
 distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
 
 
-    # ===================== RESUMO =====================
+        # ===================== RESUMO =====================
     resumo_dict = {
         "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
         "Formação CASA": [form_casa], "Formação FORA": [form_fora],
@@ -980,6 +980,7 @@ distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
     }
     resumo_df = pd.DataFrame(resumo_dict)
     pesos_df = pd.DataFrame([pesos])
+
 
     # 👉 Guardar no session_state
     st.session_state["analise_final"] = {
