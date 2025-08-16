@@ -49,6 +49,21 @@ def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
     for k in keys:
         dd[k] = to_float_or_none(dd.get(k))
     return dd
+    
+def fmt_any(v, nd: int = 2, dash: str = "—"):
+    """Formata número único ou sequência (lista/tuplo) de números."""
+    if isinstance(v, (list, tuple)):
+        if not v:
+            return dash
+        return ", ".join(fmt_num(x, nd=nd, dash=dash) for x in v)
+    return fmt_num(v, nd=nd, dash=dash)
+
+def first_float(v) -> float:
+    """Extrai um float de v (aceita escalar ou 1º elemento de lista/tuplo)."""
+    if isinstance(v, (list, tuple)):
+        return to_float_or_none(v[0]) or 0.0 if v else 0.0
+    return to_float_or_none(v) or 0.0
+
 
 # --------- PARSER DE STREAMS ---------
 def parse_m3u_or_url(raw: str) -> Optional[str]:
