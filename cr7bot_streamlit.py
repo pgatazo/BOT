@@ -941,23 +941,24 @@ if st.button("Gerar Análise e Odds Justa"):
     })
 
     # ===================== DISTRIBUIÇÃO DOS AJUSTES =====================
-    dist_ajustes = [
-        ["Formação",      form_aj_casa,  form_aj_fora],
-        ["Abordagem",     tipo_aj_casa,  tipo_aj_fora],
-        ["Titulares",     tit_aj_casa,   tit_aj_fora],
-        ["Motivação",     motiv_aj_casa, motiv_aj_fora],
-        ["Árbitro",       arb_aj_casa,   arb_aj_fora],
-        ["Pressão",       press_aj_casa, press_aj_fora],
-        ["Importância",   imp_aj_casa,   imp_aj_fora],
-        ["Desgaste",      des_aj_casa,   des_aj_fora],
-        ["Viagem",        viag_aj_casa,  viag_aj_fora],
-        ["AJUSTE TOTAL",  ajuste_total_casa, ajuste_total_fora],
-        ["λ (golos) aj.", lh, la],
-        ["Meteo factor",  meteo_factor,   meteo_factor],
-        ["Prob. CASA",    prob_casa_aj,   ""],
-        ["Prob. FORA",    "",             prob_fora_aj],
-    ]
-    distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
+dist_ajustes = [
+    ["Formação",      round(form_aj_casa, 3),  round(form_aj_fora, 3)],
+    ["Abordagem",     round(tipo_aj_casa, 3),  round(tipo_aj_fora, 3)],
+    ["Titulares",     round(tit_aj_casa, 3),   round(tit_aj_fora, 3)],
+    ["Motivação",     round(motiv_aj_casa, 3), round(motiv_aj_fora, 3)],
+    ["Árbitro",       round(arb_aj_casa, 3),   round(arb_aj_fora, 3)],
+    ["Pressão",       round(press_aj_casa, 3), round(press_aj_fora, 3)],
+    ["Importância",   round(imp_aj_casa, 3),   round(imp_aj_fora, 3)],
+    ["Desgaste",      round(des_aj_casa, 3),   round(des_aj_fora, 3)],
+    ["Viagem",        round(viag_aj_casa, 3),  round(viag_aj_fora, 3)],
+    ["AJUSTE TOTAL",  round(ajuste_total_casa, 3), round(ajuste_total_fora, 3)],
+    ["λ (golos) aj.", round(lh, 3),            round(la, 3)],
+    ["Meteo factor",  round(meteo_factor, 2),  round(meteo_factor, 2)],
+    ["Prob. CASA",    round(prob_casa_aj, 3),  ""],
+    ["Prob. FORA",    "",                      round(prob_fora_aj, 3)],
+]
+distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator", "Casa", "Fora"])
+
 
     # ===================== RESUMO =====================
     resumo_dict = {
