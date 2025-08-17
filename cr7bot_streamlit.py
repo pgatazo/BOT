@@ -992,7 +992,7 @@ with tab2:
         st.success("Evento adicionado! Atualiza previsão em baixo.")
 
     st.markdown("#### Eventos registados:")
-    if st.session_state["eventos_live"]):
+    if st.session_state["eventos_live"]:
         for i, ev in enumerate(st.session_state["eventos_live"], 1):
             info_ev = f"{i}. {ev['tipo']} | {ev['equipa']}"
             if "posicao" in ev:       info_ev += f" | {ev['posicao']}"
