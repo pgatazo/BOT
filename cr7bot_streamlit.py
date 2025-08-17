@@ -486,8 +486,7 @@ if "pesos" not in st.session_state: st.session_state["pesos"] = load_pesos()
 pesos = st.session_state["pesos"]
 
 st.sidebar.title("📊 Painel de Pesos (ajustável)")
-for i, fator in enumerate(["Motivação","Árbitro","Pressão","Importância","Desgaste","Viagem","Formação","Titulares"]:
-    ):
+for i, fator in enumerate(["Motivação","Árbitro","Pressão","Importância","Desgaste","Viagem","Formação","Titulares"]):
     key_c = f"peso_{fator.lower()}_c_{i}"
     key_f = f"peso_{fator.lower()}_f_{i}"
     pesos[f"{fator}_C"] = st.sidebar.number_input(
