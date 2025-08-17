@@ -4,19 +4,14 @@
 # =============================== #
 
 import streamlit as st
-import hashlib
-import json
-import os
+import hashlib, json, os, math, re, time
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
-import time
-import re
 from urllib.parse import urlparse
 import streamlit.components.v1 as components
 from html import escape
-import math
 from typing import Optional
 
 # --------- CONFIG DA PÁGINA ---------
@@ -24,36 +19,28 @@ st.set_page_config(page_title="PauloDamas-GPT", layout="wide")
 
 # --------- HELPERS NUMÉRICOS / SANEAMENTO ---------
 def fmt_num(v, nd: int = 2, dash: str = "—"):
-    if v is None:
-        return dash
+    if v is None: return dash
     try:
         x = float(str(v).replace(",", "."))
-        if math.isnan(x) or math.isinf(x):
-            return dash
+        if math.isnan(x) or math.isinf(x): return dash
         return f"{x:.{nd}f}"
     except Exception:
         return dash
 
 def to_float_or_none(v) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        return float(str(v).replace(",", ".").strip())
-    except Exception:
-        return None
+    if v is None: return None
+    try: return float(str(v).replace(",", ".").strip())
+    except Exception: return None
 
 def sanitize_analysis(d: dict, keys=("xg_1p","xg_2p","xg_total")) -> dict:
-    if not isinstance(d, dict):
-        return {}
+    if not isinstance(d, dict): return {}
     dd = dict(d)
-    for k in keys:
-        dd[k] = to_float_or_none(dd.get(k))
+    for k in keys: dd[k] = to_float_or_none(dd.get(k))
     return dd
 
 def fmt_any(v, nd: int = 2, dash: str = "—"):
     if isinstance(v, (list, tuple)):
-        if not v:
-            return dash
+        if not v: return dash
         return ", ".join(fmt_num(x, nd=nd, dash=dash) for x in v)
     return fmt_num(v, nd=nd, dash=dash)
 
@@ -92,8 +79,7 @@ METEO_MULT = {
 }
 
 def pois_pmf(k: int, lam: float) -> float:
-    if k < 0:
-        return 0.0
+    if k < 0: return 0.0
     lam = max(float(lam), 1e-9)
     return math.exp(-lam) * (lam**k) / math.factorial(k)
 
@@ -108,16 +94,14 @@ def poisson_outcome_probs(l_home: float, l_away: float, max_goals: int = 12):
         for ga in range(max_goals + 1):
             pa = pmf_away[ga]
             p = ph * pa
-            if gh > ga:
-                p_home += p
-            elif gh == ga:
-                p_draw += p
-            else:
-                p_away += p
+            if gh > ga: p_home += p
+            elif gh == ga: p_draw += p
+            else: p_away += p
     s = p_home + p_draw + p_away
     if s <= 0: return 1/3, 1/3, 1/3
     return p_home/s, p_draw/s, p_away/s
-# --------- PARSER DE STREAMS ---------
+
+# --------- PARSER DE STREAMS / LEITOR HLS ---------
 def parse_m3u_or_url(raw: str) -> Optional[str]:
     if not raw: return None
     s = raw.strip()
@@ -133,8 +117,7 @@ def parse_m3u_or_url(raw: str) -> Optional[str]:
 M3U_ENTRY_RE = re.compile(r'#EXTINF:-?\d+.*?,(?P<name>.+)\n(?P<url>https?://[^\s]+)', re.IGNORECASE)
 
 def parse_m3u(text: str):
-    chans = []
-    payload = text.replace('\r','').strip()
+    chans, payload = [], text.replace('\r','').strip()
     for m in M3U_ENTRY_RE.finditer(payload):
         chans.append({"name": m.group('name').strip(), "url": m.group('url').strip()})
     if not chans:
@@ -144,13 +127,6 @@ def parse_m3u(text: str):
                 chans.append({"name": line.rsplit("/",1)[-1], "url": line})
     return chans
 
-def looks_safe_m3u8(url: str) -> bool:
-    try:
-        u = urlparse(url)
-        return u.scheme in ('http','https') and (u.path.endswith('.m3u8') or '.m3u8' in u.path)
-    except Exception:
-        return False
-
 def hls_player(url: str, height: int = 420):
     if not url:
         st.info("Cole uma URL HLS (.m3u8) válida ou carregue um ficheiro M3U/M3U8.")
@@ -158,9 +134,7 @@ def hls_player(url: str, height: int = 420):
     safe_url = url.replace('"','%22').replace("'", "%27")
     html = f"""
     <div style="position:relative;width:100%;max-width:1000px;margin:0 auto;">
-      <video id="v" controls playsinline style="width:100%;height:auto;background:#000;" poster="">
-        Your browser does not support the video tag.
-      </video>
+      <video id="v" controls playsinline style="width:100%;height:auto;background:#000;" poster=""></video>
       <div style="position:absolute;top:8px;right:8px;display:flex;gap:6px;">
         <button onclick="pip()" style="padding:6px 10px;">PiP</button>
         <button onclick="fs()"  style="padding:6px 10px;">Fullscreen</button>
@@ -180,12 +154,7 @@ def hls_player(url: str, height: int = 420):
           video.outerHTML = "<div style='color:#fff;padding:8px;font-family:system-ui'>HLS não suportado neste browser.</div>";
         }}
       }}
-      async function pip() {{
-        try {{
-          if (document.pictureInPictureElement) {{ await document.exitPictureInPicture(); }}
-          else {{ await video.requestPictureInPicture(); }}
-        }} catch(e){{ console.log(e); }}
-      }}
+      async function pip(){{ try{{ if (document.pictureInPictureElement){{await document.exitPictureInPicture();}} else {{await video.requestPictureInPicture();}} }}catch(e){{}} }}
       function fs(){{ if (video.requestFullscreen) video.requestFullscreen(); }}
       start();
     </script>
@@ -202,7 +171,6 @@ def load_favs() -> dict:
         except Exception:
             return {}
     return {}
-
 def save_favs(data: dict) -> None:
     tmp = FAVORITES_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -236,11 +204,9 @@ with col_btn1:
             st.session_state["channels"] = chans
             st.success(f"Lista carregada: {len(chans)} canais.")
 with col_btn2:
-    if st.button("Limpar lista"):
-        st.session_state["channels"] = []
+    if st.button("Limpar lista"): st.session_state["channels"] = []
 with col_btn3:
-    if st.button("Limpar player"):
-        st.session_state["hls_url"] = None
+    if st.button("Limpar player"): st.session_state["hls_url"] = None
 
 if uploaded is not None:
     try:
@@ -265,8 +231,7 @@ with left:
     st.markdown("### 📜 Canais")
     channels = st.session_state["channels"]
     search = st.text_input("Pesquisar canal", placeholder="nome parcial…")
-    if search:
-        channels = [c for c in channels if search.lower() in c["name"].lower()]
+    if search: channels = [c for c in channels if search.lower() in c["name"].lower()]
     if channels:
         names = [c["name"] for c in channels]
         idx = st.selectbox("Escolhe um canal", range(len(names)), format_func=lambda i: names[i])
@@ -360,28 +325,19 @@ def safe_json_write(filepath, data, retries=5):
 
 # ======== LOGIN =========
 def hash_pwd(pwd): return hashlib.sha256(pwd.encode()).hexdigest()
-
 def load_users():
     if not os.path.exists(USERS_FILE):
         base_users = {"paulo": hash_pwd("damas2024"), "admin": hash_pwd("admin123")}
         safe_json_write(USERS_FILE, base_users)
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
+    with open(USERS_FILE, "r") as f: return json.load(f)
 USERS = load_users()
 
 def set_online(username, online=True):
     data = {}
     if os.path.exists(ONLINE_FILE):
-        with open(ONLINE_FILE, "r") as f:
-            data = json.load(f)
+        with open(ONLINE_FILE, "r") as f: data = json.load(f)
     data[username] = {"online": online, "dt": datetime.now().strftime('%H:%M')}
     safe_json_write(ONLINE_FILE, data)
-
-def get_all_online():
-    if os.path.exists(ONLINE_FILE):
-        with open(ONLINE_FILE, "r") as f:
-            return json.load(f)
-    return {}
 
 def login_screen():
     st.title("🔒 Login - PauloDamas-GPT")
@@ -398,8 +354,7 @@ def login_screen():
     return st.session_state.get("login_success", False)
 
 if "login_success" not in st.session_state or not st.session_state["login_success"]:
-    if not login_screen():
-        st.stop()
+    if not login_screen(): st.stop()
 else:
     set_online(st.session_state['logged_user'], True)
 
@@ -427,14 +382,12 @@ def to_excel(df, distrib, resumo, pesos_df):
 def save_custom(data): safe_json_write(CUSTOM_FILE, data)
 def load_custom():
     if os.path.exists(CUSTOM_FILE):
-        with open(CUSTOM_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(CUSTOM_FILE, "r", encoding="utf-8") as f: return json.load(f)
     return {}
 def save_pesos(pesos): safe_json_write(PESOS_FILE, pesos)
 def load_pesos():
     if os.path.exists(PESOS_FILE):
-        with open(PESOS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open(PESOS_FILE, "r", encoding="utf-8") as f: return json.load(f)
     return {
         "Motivação_C": 0.01, "Motivação_F": 0.01,
         "Árbitro_C": 0.00, "Árbitro_F": 0.00,
@@ -446,17 +399,15 @@ def load_pesos():
         "Titulares_C": 0.01, "Titulares_F": 0.01
     }
 
+def load_chat():
+    if os.path.exists(CHAT_FILE):
+        with open(CHAT_FILE, "r", encoding="utf-8") as f: return json.load(f)
+    return []
 def save_message(user, msg, dt=None):
     chat = load_chat()
     if dt is None: dt = datetime.now().strftime('%H:%M')
     chat.append({"user": user, "msg": msg, "dt": dt})
     safe_json_write(CHAT_FILE, chat)
-
-def load_chat():
-    if os.path.exists(CHAT_FILE):
-        with open(CHAT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
 
 def export_detalhado(base_inputs, eventos, xg_2p=None, ajuste=None, xg_ponderado=None):
     pesos = load_pesos()
@@ -514,7 +465,7 @@ def export_detalhado(base_inputs, eventos, xg_2p=None, ajuste=None, xg_ponderado
         df.to_excel(writer, sheet_name="Detalhe_Analise", index=False)
     return output.getvalue()
 
-# ======== LISTAS ========
+# ======== LISTAS / PESOS / LIGAS ========
 formacoes_lista = [
     "4-4-2","4-3-3","4-2-3-1","3-5-2","3-4-3","5-3-2","4-1-4-1","4-5-1",
     "3-4-2-1","3-4-1-2","3-6-1","4-4-1-1","4-3-1-2","4-2-2-2","4-3-2-1",
@@ -531,13 +482,12 @@ posicoes_lista = ["GR","Defesa","Médio","Avançado"]
 importancias_lista = ["Peça chave","Importante","Normal"]
 meteos_lista = ["Sol","Nublado","Chuva","Vento","Frio","Calor","Calor extremo","Outro"]
 
-# ======== PAINEL DE PESOS ========
-if "pesos" not in st.session_state:
-    st.session_state["pesos"] = load_pesos()
+if "pesos" not in st.session_state: st.session_state["pesos"] = load_pesos()
 pesos = st.session_state["pesos"]
 
 st.sidebar.title("📊 Painel de Pesos (ajustável)")
-for i, fator in enumerate(["Motivação","Árbitro","Pressão","Importância","Desgaste","Viagem","Formação","Titulares"]):
+for i, fator in enumerate(["Motivação","Árbitro","Pressão","Importância","Desgaste","Viagem","Formação","Titulares"]:
+    ):
     key_c = f"peso_{fator.lower()}_c_{i}"
     key_f = f"peso_{fator.lower()}_f_{i}"
     pesos[f"{fator}_C"] = st.sidebar.number_input(
@@ -549,7 +499,6 @@ for i, fator in enumerate(["Motivação","Árbitro","Pressão","Importância","D
         value=pesos.get(f"{fator}_F", 0.01), step=0.001, key=key_f
     )
 
-# ======== LIGAS E EQUIPAS ========
 custom_data = load_custom()
 ligas_fixas = {
     "Liga Betclic": [
@@ -647,28 +596,19 @@ with tab1:
             equipa_fora = nova_fora
 
     # ---- Odds & banca
-    st.subheader("📊 Odds da Casa de Apostas")
-
-    col_odds1, col_odds2, col_odds3 = st.columns(3)
-    with col_odds1:
-        odd_casa = st.number_input("Odd CASA (1)", min_value=1.01, value=1.80, step=0.01)
-    with col_odds2:
-        odd_empate = st.number_input("Odd EMPATE (X)", min_value=1.01, value=3.50, step=0.01)
-    with col_odds3:
-        odd_fora = st.number_input("Odd FORA (2)", min_value=1.01, value=4.20, step=0.01)
-
-    col_odds4, col_odds5, col_odds6 = st.columns(3)
-    with col_odds4:
-        odd_over15 = st.number_input("Over 1.5 (Match)", min_value=1.01, value=1.35, step=0.01)
-    with col_odds5:
-        odd_over25 = st.number_input("Over 2.5 (Match)", min_value=1.01, value=1.95, step=0.01)
-    with col_odds6:
-        odd_btts = st.number_input("BTTS (Match)", min_value=1.01, value=1.85, step=0.01)
+    st.subheader("📊 Odds da Casa de Apostas (1X2 + Golos)")
+    c1, c2, c3 = st.columns(3)
+    with c1: odd_casa   = st.number_input("Odd CASA (1)",    min_value=1.01, value=1.80, step=0.01)
+    with c2: odd_empate = st.number_input("Odd EMPATE (X)",  min_value=1.01, value=3.50, step=0.01)
+    with c3: odd_fora   = st.number_input("Odd FORA (2)",    min_value=1.01, value=4.20, step=0.01)
+    c4, c5, c6 = st.columns(3)
+    with c4: odd_over15 = st.number_input("Odd Over 1.5 (Match)", min_value=1.01, value=1.35, step=0.01)
+    with c5: odd_over25 = st.number_input("Odd Over 2.5 (Match)", min_value=1.01, value=1.95, step=0.01)
+    with c6: odd_btts   = st.number_input("Odd BTTS (Match)",     min_value=1.01, value=1.85, step=0.01)
 
     soma_odds = odd_casa + odd_empate + odd_fora
     st.info(f"Soma odds 1X2: **{soma_odds:.2f}**")
     banca = st.number_input("💳 Valor atual da banca (€)", min_value=1.0, value=100.0, step=0.01)
-
 
     # ---- Formações / titulares / meteo / árbitro / motivação
     st.subheader("Formações e Estratégias")
@@ -689,13 +629,10 @@ with tab1:
     meteo = st.selectbox("Tempo esperado", meteos_lista, key="meteo_pre")
 
     st.subheader("Árbitro e Tendência de Cartões")
-    col_arbitro1, col_arbitro2, col_arbitro3 = st.columns(3)
-    with col_arbitro1:
-        arbitro = st.slider("Nota do Árbitro (0-10)", 0.0, 10.0, 5.0, 0.1, key="arbitro_pre")
-    with col_arbitro2:
-        tendencia_cartoes = st.selectbox("Tendência para cartões", ["Poucos","Normal","Muitos"], key="tendencia_cartoes")
-    with col_arbitro3:
-        media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
+    col_ar1, col_ar2, col_ar3 = st.columns(3)
+    with col_ar1: arbitro = st.slider("Nota do Árbitro (0-10)", 0.0, 10.0, 5.0, 0.1, key="arbitro_pre")
+    with col_ar2: tendencia_cartoes = st.selectbox("Tendência para cartões", ["Poucos","Normal","Muitos"], key="tendencia_cartoes")
+    with col_ar3: media_cartoes = st.number_input("Média de cartões por jogo", min_value=0.0, value=4.0, step=0.1, key="media_cartoes")
 
     st.subheader("Motivação e Condições Especiais")
     col_casa, col_fora = st.columns(2)
@@ -745,49 +682,49 @@ with tab1:
             'marc_h2h_casa': media_h2h_casa, 'marc_h2h_fora': media_h2h_fora,
         }
         st.success("Totais confirmados!")
-
 # ===================== GERAR ANÁLISE E ODDS JUSTA =====================
 if st.button("Gerar Análise e Odds Justa"):
     def fator_delta(v_casa, v_fora, lista, peso_c, peso_f):
         idx_c = lista.index(v_casa); idx_f = lista.index(v_fora); diff = idx_c - idx_f
         return 1 + diff * peso_c, 1 - diff * peso_f
 
-    form_aj_casa, form_aj_fora   = fator_delta(form_casa, form_fora, formacoes_lista, pesos["Formação_C"], pesos["Formação_F"])
-    tipo_aj_casa, tipo_aj_fora   = fator_delta(tipo_form_casa, tipo_form_fora, tipos_formacao, pesos["Formação_C"], pesos["Formação_F"])
+    # Ajustes
+    form_aj_casa, form_aj_fora = fator_delta(form_casa, form_fora, formacoes_lista, pesos["Formação_C"], pesos["Formação_F"])
+    tipo_aj_casa, tipo_aj_fora = fator_delta(tipo_form_casa, tipo_form_fora, tipos_formacao, pesos["Formação_C"], pesos["Formação_F"])
     tit_aj_casa = 1 + (titulares_casa - 11) * pesos["Titulares_C"]
     tit_aj_fora = 1 + (titulares_fora - 11) * pesos["Titulares_F"]
     motiv_aj_casa = 1 + (["Baixa","Normal","Alta","Máxima"].index(motivacao_casa)-1) * pesos["Motivação_C"]
     motiv_aj_fora = 1 + (["Baixa","Normal","Alta","Máxima"].index(motivacao_fora)-1) * pesos["Motivação_F"]
-    arb_aj_casa = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_C"]
-    arb_aj_fora = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_F"]
+    arb_aj_casa   = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_C"]
+    arb_aj_fora   = 1 + ((arbitro - 5) / 10) * pesos["Árbitro_F"]
     press_aj_casa = 1 + (["Baixa","Normal","Alta"].index(pressao_adeptos_casa)) * pesos["Pressão_C"]
     press_aj_fora = 1 + (["Baixa","Normal","Alta"].index(pressao_adeptos_fora)) * pesos["Pressão_F"]
-    imp_aj_casa = 1 + (["Pouca","Normal","Importante","Decisivo"].index(importancia_jogo_casa)) * pesos["Importância_C"]
-    imp_aj_fora = 1 + (["Pouca","Normal","Importante","Decisivo"].index(importancia_jogo_fora)) * pesos["Importância_F"]
-    des_aj_casa = 1 - (["Baixo","Normal","Elevado"].index(desgaste_fisico_casa)) * pesos["Desgaste_C"]
-    des_aj_fora = 1 - (["Baixo","Normal","Elevado"].index(desgaste_fisico_fora)) * pesos["Desgaste_F"]
-    viag_aj_casa = 1 - (["Descanso","Viagem curta","Viagem longa","Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
-    viag_aj_fora = 1 - (["Descanso","Viagem curta","Viagem longa","Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
+    imp_aj_casa   = 1 + (["Pouca","Normal","Importante","Decisivo"].index(importancia_jogo_casa)) * pesos["Importância_C"]
+    imp_aj_fora   = 1 + (["Pouca","Normal","Importante","Decisivo"].index(importancia_jogo_fora)) * pesos["Importância_F"]
+    des_aj_casa   = 1 - (["Baixo","Normal","Elevado"].index(desgaste_fisico_casa)) * pesos["Desgaste_C"]
+    des_aj_fora   = 1 - (["Baixo","Normal","Elevado"].index(desgaste_fisico_fora)) * pesos["Desgaste_F"]
+    viag_aj_casa  = 1 - (["Descanso","Viagem curta","Viagem longa","Calendário apertado"].index(viagem_casa)) * pesos["Viagem_C"]
+    viag_aj_fora  = 1 - (["Descanso","Viagem curta","Viagem longa","Calendário apertado"].index(viagem_fora)) * pesos["Viagem_F"]
 
     ajuste_total_casa = form_aj_casa * tipo_aj_casa * tit_aj_casa * motiv_aj_casa * arb_aj_casa * press_aj_casa * imp_aj_casa * des_aj_casa * viag_aj_casa
     ajuste_total_fora = form_aj_fora * tipo_aj_fora * tit_aj_fora * motiv_aj_fora * arb_aj_fora * press_aj_fora * imp_aj_fora * des_aj_fora * viag_aj_fora
 
+    # Meteo + lambdas
     meteo_factor = METEO_MULT.get(meteo, 1.00)
     l_home_base = max(0.1, (media_marcados_casa + media_sofridos_fora) / 2)
     l_away_base = max(0.1, (media_marcados_fora + media_sofridos_casa) / 2)
     lh = l_home_base * ajuste_total_casa * meteo_factor
     la = l_away_base * ajuste_total_fora * meteo_factor
-    prob_casa_aj, prob_empate_aj, prob_fora_aj = poisson_outcome_probs(lh, la, max_goals=12)
 
+    # Prob 1X2 e odds justas
+    prob_casa_aj, prob_empate_aj, prob_fora_aj = poisson_outcome_probs(lh, la, max_goals=12)
     eps = 1e-9
     odd_justa_casa   = 1.0 / max(eps, prob_casa_aj)
     odd_justa_empate = 1.0 / max(eps, prob_empate_aj)
     odd_justa_fora   = 1.0 / max(eps, prob_fora_aj)
 
-    ev_casa   = calc_ev(prob_casa_aj, odd_casa)
-    ev_empate = calc_ev(prob_empate_aj, odd_empate)
-    ev_fora   = calc_ev(prob_fora_aj, odd_fora)
-
+    # EV/Kelly 1X2
+    ev_casa, ev_empate, ev_fora = calc_ev(prob_casa_aj, odd_casa), calc_ev(prob_empate_aj, odd_empate), calc_ev(prob_fora_aj, odd_fora)
     stake_casa   = kelly_criterion(prob_casa_aj, odd_casa, banca)
     stake_empate = kelly_criterion(prob_empate_aj, odd_empate, banca)
     stake_fora   = kelly_criterion(prob_fora_aj, odd_fora, banca)
@@ -809,15 +746,27 @@ if st.button("Gerar Análise e Odds Justa"):
                   for ev, stv in zip([ev_casa,ev_empate,ev_fora],[stake_casa,stake_empate,stake_fora])]
     })
 
+    # >>> CORRIGIDO: odds da casa, EV e stakes dos mercados extra <<<
     extra_markets = pd.DataFrame({
         "Aposta": ["Over 1.5 (Match)", "Over 2.5 (Match)", "BTTS (Match)"],
-        "Odd": ["—","—","—"],
+        "Odd": [odd_over15, odd_over25, odd_btts],
         "Odd Justa": [round(1/max(eps,p_over15),2), round(1/max(eps,p_over25),2), round(1/max(eps,p_btts),2)],
         "Prob. (%)": [round(p_over15*100,1), round(p_over25*100,1), round(p_btts*100,1)],
-        "EV": ["—","—","—"], "Stake (€)": ["—","—","—"], "Valor": ["","",""],
+        "EV": [calc_ev(p_over15, odd_over15), calc_ev(p_over25, odd_over25), calc_ev(p_btts, odd_btts)],
+        "Stake (€)": [
+            round(kelly_criterion(p_over15, odd_over15, banca),2),
+            round(kelly_criterion(p_over25, odd_over25, banca),2),
+            round(kelly_criterion(p_btts,   odd_btts,   banca),2),
+        ],
+        "Valor": [
+            "✅" if calc_ev(p_over15, odd_over15)>0 else "❌",
+            "✅" if calc_ev(p_over25, odd_over25)>0 else "❌",
+            "✅" if calc_ev(p_btts,   odd_btts)>0 else "❌",
+        ],
     })
     df_res = pd.concat([df_res, extra_markets], ignore_index=True)
 
+    # Dist. ajustes
     dist_ajustes = [
         ["Formação", round(form_aj_casa,3), round(form_aj_fora,3)],
         ["Abordagem", round(tipo_aj_casa,3), round(tipo_aj_fora,3)],
@@ -836,58 +785,38 @@ if st.button("Gerar Análise e Odds Justa"):
     ]
     distrib_df = pd.DataFrame(dist_ajustes, columns=["Fator","Casa","Fora"])
 
+    # Resumo (inclui odds Over/BTTS e probs/justas)
     resumo_dict = {
-    "Liga": [liga_escolhida], "Equipa CASA": [equipa_casa], "Equipa FORA": [equipa_fora],
-    "Formação CASA": [form_casa], "Formação FORA": [form_fora],
-    "Abordagem CASA": [tipo_form_casa], "Abordagem FORA": [tipo_form_fora],
-    "Titulares CASA": [titulares_casa], "Titulares FORA": [titulares_fora],
-    "Período do Jogo": [periodo_jogo], "Meteo": [meteo],
-    "Nota Árbitro": [arbitro], "Tendência Cartões": [tendencia_cartoes], "Média Cartões": [media_cartoes],
-    "Motivação CASA": [motivacao_casa], "Importância Jogo CASA": [importancia_jogo_casa], "Pressão Adeptos CASA": [pressao_adeptos_casa],
-    "Desgaste CASA": [desgaste_fisico_casa], "Viagem CASA": [viagem_casa],
-    "Motivação FORA": [motivacao_fora], "Importância Jogo FORA": [importancia_jogo_fora], "Pressão Adeptos FORA": [pressao_adeptos_fora],
-    "Desgaste FORA": [desgaste_fisico_fora], "Viagem FORA": [viagem_fora],
+        "Liga":[liga_escolhida], "Equipa CASA":[equipa_casa], "Equipa FORA":[equipa_fora],
+        "Formação CASA":[form_casa], "Formação FORA":[form_fora],
+        "Abordagem CASA":[tipo_form_casa], "Abordagem FORA":[tipo_form_fora],
+        "Titulares CASA":[titulares_casa], "Titulares FORA":[titulares_fora],
+        "Período do Jogo":[periodo_jogo], "Meteo":[meteo],
+        "Nota Árbitro":[arbitro], "Tendência Cartões":[tendencia_cartoes], "Média Cartões":[media_cartoes],
+        "Motivação CASA":[motivacao_casa], "Importância Jogo CASA":[importancia_jogo_casa], "Pressão Adeptos CASA":[pressao_adeptos_casa],
+        "Desgaste CASA":[desgaste_fisico_casa], "Viagem CASA":[viagem_casa],
+        "Motivação FORA":[motivacao_fora], "Importância Jogo FORA":[importancia_jogo_fora], "Pressão Adeptos FORA":[pressao_adeptos_fora],
+        "Desgaste FORA":[desgaste_fisico_fora], "Viagem FORA":[viagem_fora],
+        "Odd CASA":[odd_casa], "Odd EMPATE":[odd_empate], "Odd FORA":[odd_fora], "Banca (€)":[banca],
+        "Média Marcados CASA":[media_marcados_casa], "Média Sofridos CASA":[media_sofridos_casa],
+        "Média Marcados FORA":[media_marcados_fora], "Média Sofridos FORA":[media_sofridos_fora],
+        "Média H2H CASA":[media_h2h_casa], "Média H2H FORA":[media_h2h_fora],
+        "λ CASA (aj.)":[lh], "λ FORA (aj.)":[la], "Meteo factor":[meteo_factor],
+        "Odd Over 1.5":[odd_over15], "Odd Over 2.5":[odd_over25], "Odd BTTS":[odd_btts],
+        "Over1.5 prob (%)":[round(p_over15*100,1)], "Over2.5 prob (%)":[round(p_over25*100,1)], "BTTS prob (%)":[round(p_btts*100,1)],
+        "Over1.5 justa":[round(1/max(eps,p_over15),2)], "Over2.5 justa":[round(1/max(eps,p_over25),2)], "BTTS justa":[round(1/max(eps,p_btts),2)],
+    }
+    resumo_df = pd.DataFrame(resumo_dict)
+    pesos_df = pd.DataFrame([pesos])
 
-    # Odds 1X2 + banca
-    "Odd CASA": [odd_casa], "Odd EMPATE": [odd_empate], "Odd FORA": [odd_fora], "Banca (€)": [banca],
+    # Guardar e mostrar
+    st.session_state["analise_final"] = {
+        "df_res": df_res, "distrib_df": distrib_df, "resumo_df": resumo_df, "pesos_df": pesos_df,
+        "xg_2p": None, "ajuste": (ajuste_total_casa, ajuste_total_fora),
+        "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
+    }
 
-    # Médias e H2H
-    "Média Marcados CASA": [media_marcados_casa], "Média Sofridos CASA": [media_sofridos_casa],
-    "Média Marcados FORA": [media_marcados_fora], "Média Sofridos FORA": [media_sofridos_fora],
-    "Média H2H CASA": [media_h2h_casa], "Média H2H FORA": [media_h2h_fora],
-
-    # Lambdas e Meteo
-    "λ CASA (aj.)": [lh], "λ FORA (aj.)": [la], "Meteo factor": [meteo_factor],
-
-    # Mercados Over/BTTS - odds da casa
-    "Odd Over 1.5": [odd_over15],
-    "Odd Over 2.5": [odd_over25],
-    "Odd BTTS":     [odd_btts],
-
-    # Probabilidades (em %) e odds justas (modelo)
-    "Over1.5 prob (%)": [round(p_over15*100, 1)],
-    "Over2.5 prob (%)": [round(p_over25*100, 1)],
-    "BTTS prob (%)":    [round(p_btts*100,   1)],
-
-    "Over1.5 justa": [round(1/max(eps, p_over15), 2)],
-    "Over2.5 justa": [round(1/max(eps, p_over25), 2)],
-    "BTTS justa":    [round(1/max(eps, p_btts),   2)],
-}
-
-resumo_df = pd.DataFrame(resumo_dict)
-pesos_df = pd.DataFrame([pesos])
-
-# 👉 Guardar no session_state
-st.session_state["analise_final"] = {
-    "df_res": df_res,
-    "distrib_df": distrib_df,
-    "resumo_df": resumo_df,
-    "pesos_df": pesos_df,
-    # 👇 guardar também para o bloco LIVE
-    "xg_2p": locals().get("xg_2p"),
-    "ajuste": (ajuste_total_casa, ajuste_total_fora),
-    "xg_ponderado": (prob_casa_aj, prob_empate_aj, prob_fora_aj)
-}
+# ===================== MOSTRAR RESULTADOS (fora do botão) =====================
 if "analise_final" in st.session_state:
     analise = st.session_state["analise_final"]
     st.subheader("Resultados da Análise")
@@ -965,12 +894,11 @@ with tab2:
 
     if st.button("Adicionar evento LIVE"):
         evento = {"tipo": tipo_evento, "equipa": equipa_evento, "detalhes": detalhes_evento}
-        if posicao_ev:   evento["posicao"] = posicao_ev
-        if tipo_troca_ev:evento["tipo_troca"] = tipo_troca_ev
-        if nova_form_ev: evento["nova_formacao"] = nova
-        if nova_form_ev: evento["nova_formacao"] = nova_form_ev
-        if tipo_form_ev: evento["tipo_formacao"] = tipo_form_ev
-        if imp_ev:       evento["importancia"] = imp_ev
+        if posicao_ev:    evento["posicao"] = posicao_ev
+        if tipo_troca_ev: evento["tipo_troca"] = tipo_troca_ev
+        if nova_form_ev:  evento["nova_formacao"] = nova_form_ev   # <- FIX (remove 'nova' indefinida)
+        if tipo_form_ev:  evento["tipo_formacao"] = tipo_form_ev
+        if imp_ev:        evento["importancia"] = imp_ev
         st.session_state["eventos_live"].append(evento)
         st.success("Evento adicionado! Atualiza previsão em baixo.")
 
@@ -978,32 +906,26 @@ with tab2:
     if st.session_state["eventos_live"]:
         for i, ev in enumerate(st.session_state["eventos_live"], 1):
             info_ev = f"{i}. {ev['tipo']} | {ev['equipa']}"
-            if "posicao" in ev:        info_ev += f" | {ev['posicao']}"
-            if "tipo_troca" in ev:     info_ev += f" | {ev['tipo_troca']}"
-            if "nova_formacao" in ev:  info_ev += f" | Nova: {ev['nova_formacao']} ({ev.get('tipo_formacao','')})"
-            if "importancia" in ev:    info_ev += f" | {ev['importancia']}"
-            if ev.get('detalhes'):     info_ev += f" | {ev['detalhes']}"
+            if "posicao" in ev:       info_ev += f" | {ev['posicao']}"
+            if "tipo_troca" in ev:    info_ev += f" | {ev['tipo_troca']}"
+            if "nova_formacao" in ev: info_ev += f" | Nova: {ev['nova_formacao']} ({ev.get('tipo_formacao','')})"
+            if "importancia" in ev:   info_ev += f" | {ev['importancia']}"
+            if ev.get('detalhes'):    info_ev += f" | {ev['detalhes']}"
             st.write(info_ev)
     else:
         st.write("Nenhum evento registado ainda.")
 
-    # ---- Heurísticas simples para comentário / xG 2ª parte ----
-    def interpretar_tatica(eventos, live_base, resultado):
-        # placeholder simples; adapta à tua lógica
+    # Heurística simples
+    def interpretar_tatica(eventos, live_base, _resultado):
         n_evt = len(eventos)
         base = live_base.get("xg_casa", 0) + live_base.get("xg_fora", 0)
-        if n_evt >= 4 or base >= 1.4:
-            return "Jogo aberto: tendência para ocasiões na 2ª parte."
-        if n_evt == 0 and base <= 0.6:
-            return "Jogo fechado: poucas ocasiões claras até agora."
+        if n_evt >= 4 or base >= 1.4: return "Jogo aberto: tendência para ocasiões na 2ª parte."
+        if n_evt == 0 and base <= 0.6: return "Jogo fechado: poucas ocasiões claras até agora."
         return "Equilíbrio moderado com potencial de crescer."
 
     def calc_xg_live(live_base, eventos):
-        # base: média dos xG das equipas na 1ª parte
         base_xg = (live_base.get("xg_casa", 0.0) + live_base.get("xg_fora", 0.0)) / 2.0
-        # cada evento acrescenta um pequeno ajuste
         ajuste_eventos = 0.07 * len(eventos)
-        # cartões vermelhos pesam mais
         reds = sum(1 for ev in eventos if ev.get("tipo") == "Expulsão")
         ajuste_reds = 0.20 * reds
         ajuste_total = ajuste_eventos + ajuste_reds
@@ -1017,24 +939,12 @@ with tab2:
         if 'live_base' not in st.session_state:
             st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
         else:
-            xg_2p, ajuste, xg_ponderado = calc_xg_live(
-                st.session_state['live_base'],
-                st.session_state["eventos_live"]
-            )
+            xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state["eventos_live"])
             st.markdown(f"### 🟢 **Golos Esperados para a 2ª parte:** `{xg_2p:.2f}`")
-            if xg_2p >= 1.6:
-                st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
-            elif xg_2p >= 1.2:
-                st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
-            else:
-                st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
-
-            st.info(
-                f"**Resumo do Ajuste:**\n\n"
-                f"- xG ponderado (1ª parte): {xg_ponderado:.2f}\n"
-                f"- Ajuste total (eventos): {ajuste:.2f}\n"
-                f"- Eventos registados: {len(st.session_state['eventos_live'])}"
-            )
+            if xg_2p >= 1.6:   st.success("⚽ Perspetiva de pelo menos 1 golo. Over 1.5 na 2ª parte pode ter valor.")
+            elif xg_2p >= 1.2: st.info("⚠️ Espera-se 1 golo, com hipótese de 2. Over 1.0/1.25 pode ter valor.")
+            else:              st.warning("🔒 Jogo mais fechado. Cuidado com apostas em muitos golos na 2ª parte.")
+            st.info(f"**Resumo do Ajuste:**\n\n- xG ponderado (1ª parte): {xg_ponderado:.2f}\n- Ajuste total (eventos): {ajuste:.2f}\n- Eventos registados: {len(st.session_state['eventos_live'])}")
 
 # ---- ANÁLISE FINAL E EXPORTAÇÃO (ABA LIVE) ----
 st.markdown("---")
@@ -1044,15 +954,8 @@ if st.button("Gerar Análise Final", disabled=btn_disable):
     if 'live_base' not in st.session_state:
         st.error("Preenche e confirma primeiro as estatísticas da 1ª parte!")
     else:
-        xg_2p, ajuste, xg_ponderado = calc_xg_live(
-            st.session_state['live_base'],
-            st.session_state.get("eventos_live", [])
-        )
-        st.session_state["analise_final"] = {
-            "xg_2p": xg_2p,
-            "ajuste": ajuste,
-            "xg_ponderado": xg_ponderado
-        }
+        xg_2p, ajuste, xg_ponderado = calc_xg_live(st.session_state['live_base'], st.session_state.get("eventos_live", []))
+        st.session_state["analise_final"] = {"xg_2p": xg_2p, "ajuste": ajuste, "xg_ponderado": xg_ponderado}
         st.success("✅ Análise final gerada e guardada!")
 
 # Mostrar análise + exportação SE já existir
@@ -1064,24 +967,15 @@ if "analise_final" in st.session_state:
     analise_final = sanitize_analysis(analise_final, keys=("xg_1p", "xg_2p", "xg_total"))
 
     st.markdown(f"### 🟢 Golos Esperados (2ª parte): {fmt_num(analise_final.get('xg_2p'))}")
-    st.info(
-        f"**Resumo do Ajuste:**\n\n"
-        f"- xG ponderado: {fmt_any(analise_final.get('xg_ponderado'))}\n"
-        f"- Ajuste total: {fmt_any(analise_final.get('ajuste'))}\n"
-        f"- Eventos registados: {len(eventos)}"
-    )
+    st.info(f"**Resumo do Ajuste:**\n\n- xG ponderado: {fmt_any(analise_final.get('xg_ponderado'))}\n- Ajuste total: {fmt_any(analise_final.get('ajuste'))}\n- Eventos registados: {len(eventos)}")
 
     xg_2p_val        = first_float(analise_final.get("xg_2p"))
     ajuste_val       = first_float(analise_final.get("ajuste"))
     xg_ponderado_val = first_float(analise_final.get("xg_ponderado"))
 
     excel_data = export_detalhado(base, eventos, xg_2p_val, ajuste_val, xg_ponderado_val)
-    st.download_button(
-        label="📥 Download Excel Detalhado (Live)",
-        data=excel_data,
-        file_name="live_detalhado.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    st.download_button(label="📥 Download Excel Detalhado (Live)", data=excel_data, file_name="live_detalhado.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 # Botão independente de limpar eventos
 if st.button("🗑️ Limpar eventos LIVE"):
